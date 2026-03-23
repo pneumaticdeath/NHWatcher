@@ -1,0 +1,14 @@
+Website = "https://patenaude.io/"
+
+[Details]
+# Icon = "Icon.png"
+Name = "NHWatcher"
+ID = "io.patenaude.nhwatcher"
+Version = "0.0.1"
+Build = 0
+
+[LinuxAndBSD]
+GenericName = "Nethack watching screensaver"
+Categories = ["Screensaver"]
+Comment = "Watch games on NAO"
+Keywords = ["screensaver"]
