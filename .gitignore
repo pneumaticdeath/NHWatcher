@@ -1,0 +1,15 @@
+# Compiled binary
+/nhwatcher
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+
+# Claude Code memory
+memory/
