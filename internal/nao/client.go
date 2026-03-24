@@ -52,7 +52,6 @@ type Client struct {
 	stdout  io.Reader
 	ptyCols int
 	ptyRows int
-	closed  bool
 }
 
 // NewClient creates a new NAO client.
@@ -134,11 +133,9 @@ func (c *Client) SendKey(key string) error {
 }
 
 // WatchRandomGame navigates the dgamelaunch menus to spectate a random
-// non-idle game. It reads from stdout to parse the menu, sends keystrokes
-// via stdin, and returns a new reader that provides the game output stream.
-// The returned reader replays any buffered data read during menu navigation
-// followed by the live SSH stream.
-func (c *Client) WatchRandomGame() (string, error) {
+// non-idle game. The avoid parameter specifies a player name to skip
+// (e.g. the previously watched player). Pass "" to skip nobody.
+func (c *Client) WatchRandomGame(avoid string) (string, error) {
 	// Wait for the initial dgamelaunch menu to appear
 	if err := c.readUntilPrompt(); err != nil {
 		return "", fmt.Errorf("waiting for main menu: %w", err)
@@ -162,7 +159,8 @@ func (c *Client) WatchRandomGame() (string, error) {
 		return "", fmt.Errorf("no games in progress")
 	}
 
-	// Filter to games that fit our PTY and are not idle
+	// Filter to games that fit our PTY and are not idle,
+	// avoiding the previously watched player if possible.
 	var active []Game
 	var fitting []Game
 	for _, g := range games {
@@ -182,6 +180,19 @@ func (c *Client) WatchRandomGame() (string, error) {
 	}
 	if len(candidates) == 0 {
 		candidates = games
+	}
+
+	// Try to avoid the previously watched player
+	if avoid != "" && len(candidates) > 1 {
+		var filtered []Game
+		for _, g := range candidates {
+			if g.Player != avoid {
+				filtered = append(filtered, g)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
 	}
 
 	// Pick one at random
@@ -230,20 +241,21 @@ func (c *Client) readUntilCapture(marker string) (string, error) {
 	}
 }
 
-// Close shuts down the SSH connection.
+// Close shuts down the current SSH connection. The client can be
+// reconnected by calling Connect again.
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	c.closed = true
 	if c.session != nil {
 		c.session.Close()
+		c.session = nil
 	}
 	if c.client != nil {
 		c.client.Close()
+		c.client = nil
 	}
+	c.stdin = nil
+	c.stdout = nil
 }
 
 // stripANSI removes ANSI escape sequences from terminal output.
