@@ -14,6 +14,7 @@ const (
 	SwitchIdle     SwitchReason = iota // No data received within timeout
 	SwitchGameOver                     // Watched game ended, back at menu
 	SwitchEOF                          // Connection closed
+	SwitchManual                       // User requested switch
 )
 
 func (r SwitchReason) String() string {
@@ -24,6 +25,8 @@ func (r SwitchReason) String() string {
 		return "game over"
 	case SwitchEOF:
 		return "connection closed"
+	case SwitchManual:
+		return "user request"
 	default:
 		return "unknown"
 	}

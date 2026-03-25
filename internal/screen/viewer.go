@@ -15,45 +15,74 @@ import (
 	"fyne.io/fyne/v2/widget"
 	terminal "github.com/fyne-io/terminal"
 	"github.com/pneumaticdeath/NH_Watcher/internal/nao"
+	"github.com/pneumaticdeath/NH_Watcher/internal/ttyrec"
 )
 
 const idleTimeout = 2 * time.Minute
 
 // Viewer manages the terminal display and game watching lifecycle.
 type Viewer struct {
-	window     fyne.Window
-	client     *nao.Client
-	term       *terminal.Terminal
-	status     *widget.Label
-	container  *fyne.Container
-	cols       int
-	rows       int
-	lastPlayer string
-	quit       chan struct{}
+	window         fyne.Window
+	client         *nao.Client
+	term           *terminal.Terminal
+	status         *widget.Label
+	container      *fyne.Container
+	cols           int
+	rows           int
+	lastPlayer     string
+	quit           chan struct{}
+	switchCh       chan struct{}
+	screensaverMode bool
 }
 
-// NewViewer creates a new screensaver viewer.
-func NewViewer(w fyne.Window, client *nao.Client) *Viewer {
+// NewViewer creates a new screensaver viewer. If screensaverMode is true,
+// any keypress exits. Otherwise, 's' switches games and Escape/Q quits.
+func NewViewer(w fyne.Window, client *nao.Client, screensaverMode bool) *Viewer {
 	t := terminal.New()
 	status := widget.NewLabel("Connecting to nethack.alt.org...")
 
 	v := &Viewer{
-		window: w,
-		client: client,
-		term:   t,
-		status: status,
-		quit:   make(chan struct{}),
+		window:          w,
+		client:          client,
+		term:            t,
+		status:          status,
+		quit:            make(chan struct{}),
+		switchCh:        make(chan struct{}, 1),
+		screensaverMode: screensaverMode,
 	}
 
-	// Any keypress or mouse click exits, like a screensaver
-	w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
-		v.exit()
-	})
-	w.Canvas().SetOnTypedRune(func(r rune) {
-		v.exit()
-	})
+	if screensaverMode {
+		// Any keypress exits, like a screensaver
+		w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+			v.exit()
+		})
+		w.Canvas().SetOnTypedRune(func(r rune) {
+			v.exit()
+		})
+	} else {
+		w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+			if ev.Name == fyne.KeyEscape {
+				v.exit()
+			}
+		})
+		w.Canvas().SetOnTypedRune(func(r rune) {
+			switch r {
+			case 's', 'S':
+				v.requestSwitch()
+			case 'q', 'Q':
+				v.exit()
+			}
+		})
+	}
 
 	return v
+}
+
+func (v *Viewer) requestSwitch() {
+	select {
+	case v.switchCh <- struct{}{}:
+	default:
+	}
 }
 
 func (v *Viewer) exit() {
@@ -125,11 +154,15 @@ func (v *Viewer) Start() error {
 
 		reason, err := v.watchOne()
 		if err != nil {
-			log.Printf("watch error: %v", err)
-			fyne.Do(func() {
-				v.status.SetText(fmt.Sprintf("Error: %v — retrying...", err))
-			})
-			time.Sleep(5 * time.Second)
+			log.Printf("No live game available: %v", err)
+			// Fall back to ttyrec playback
+			if ttyErr := v.playTTYRec(); ttyErr != nil {
+				log.Printf("ttyrec fallback failed: %v", ttyErr)
+				fyne.Do(func() {
+					v.status.SetText("No games or recordings available — retrying...")
+				})
+				time.Sleep(10 * time.Second)
+			}
 			continue
 		}
 		log.Printf("Switching game: %s", reason)
@@ -185,13 +218,74 @@ func (v *Viewer) watchOne() (nao.SwitchReason, error) {
 		close(done)
 	}()
 
-	// Wait for either a switch signal, the terminal finishing, or quit
+	// Wait for either a switch signal, the terminal finishing, user switch, or quit
 	select {
 	case reason := <-monitor.SwitchCh():
 		return reason, nil
+	case <-v.switchCh:
+		return nao.SwitchManual, nil
 	case <-done:
 		return nao.SwitchEOF, nil
 	case <-v.quit:
 		return nao.SwitchEOF, nil
 	}
 }
+
+// playTTYRec fetches and plays back a ttyrec recording as a fallback
+// when no live games are available.
+func (v *Viewer) playTTYRec() error {
+	fyne.Do(func() {
+		v.status.SetText("No live games — looking for recordings...")
+	})
+
+	// Get the player list to use as ttyrec candidates
+	players, err := v.client.GetRecentPlayers(v.cols, v.rows)
+	if err != nil {
+		return fmt.Errorf("get players: %w", err)
+	}
+	if len(players) == 0 {
+		return fmt.Errorf("no players found")
+	}
+
+	frames, label, err := nao.FetchRandomTTYRec(players)
+	if err != nil {
+		return fmt.Errorf("fetch ttyrec: %w", err)
+	}
+	log.Printf("Playing ttyrec: %s (%d frames)", label, len(frames))
+
+	// Fresh terminal widget
+	v.term = terminal.New()
+	fyne.Do(func() {
+		v.container.Objects[0] = v.term
+		v.container.Refresh()
+		v.status.SetText(fmt.Sprintf("Replay: %s", label))
+	})
+
+	player := ttyrec.NewPlayer(frames)
+	defer player.Stop()
+
+	// nopWriteCloser discards writes (ttyrec playback is read-only)
+	done := make(chan struct{})
+	go func() {
+		v.term.RunWithConnection(nopWriteCloser{}, player)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Printf("ttyrec playback finished: %s", label)
+		return nil
+	case <-v.switchCh:
+		player.Stop()
+		return nil
+	case <-v.quit:
+		player.Stop()
+		return nil
+	}
+}
+
+// nopWriteCloser is an io.WriteCloser that discards all writes.
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }

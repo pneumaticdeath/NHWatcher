@@ -1,7 +1,7 @@
 Website = "https://patenaude.io/"
 
 [Details]
-# Icon = "Icon.png"
+Icon = "icon.png"
 Name = "NHWatcher"
 ID = "io.patenaude.nhwatcher"
 Version = "0.0.1"
