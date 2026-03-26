@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Import the Developer ID certificate from secrets
+      - name: Install signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+
+          echo "$CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      # Build universal binary and .saver bundle
+      - name: Build
+        run: make saver-universal
+
+      # Sign the bundle
+      - name: Sign
+        env:
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+        run: make sign
+
+      # Notarize
+      - name: Notarize
+        env:
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+          NOTARIZE_APPLE_ID: ${{ secrets.NOTARIZE_APPLE_ID }}
+          NOTARIZE_TEAM_ID: ${{ secrets.NOTARIZE_TEAM_ID }}
+          NOTARIZE_PASSWORD: ${{ secrets.NOTARIZE_PASSWORD }}
+        run: make notarize
+
+      # Compute SHA256 for the Homebrew cask
+      - name: Compute SHA256
+        id: sha
+        run: |
+          SHA=$(shasum -a 256 build/NHWatcher-*.saver.zip | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "SHA256: $SHA"
+
+      # Create GitHub Release with the signed zip
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/NHWatcher-*.saver.zip
+          body: |
+            ## NH Watcher ${{ github.ref_name }}
+
+            ### Installation
+
+            **Via Homebrew:**
+            ```bash
+            brew tap pneumaticdeath/nhwatcher
+            brew install --cask nhwatcher
+            ```
+
+            **Manual:**
+            1. Download `NHWatcher-*.saver.zip` below
+            2. Unzip and double-click `NHWatcher.saver` to install
+            3. Select it in **System Settings > Screen Saver**
+
+            ### SHA256
+            ```
+            ${{ steps.sha.outputs.sha256 }}
+            ```
+          generate_release_notes: true
+
+      # Clean up keychain
+      - name: Cleanup
+        if: always()
+        run: security delete-keychain $RUNNER_TEMP/signing.keychain-db 2>/dev/null || true
