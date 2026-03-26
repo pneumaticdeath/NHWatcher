@@ -58,6 +58,8 @@ _bundle:
 	cp screensaver/Info.plist $(SAVER_CONTENTS)/Info.plist
 	cp build/nhwatcher $(SAVER_CONTENTS)/Resources/nhwatcher
 	cp icon.png $(SAVER_CONTENTS)/Resources/icon.png
+	cp preview.png $(SAVER_CONTENTS)/Resources/preview.png
+	tiffutil -cathidpicheck thumbnail.png thumbnail@2x.png -out $(SAVER_CONTENTS)/Resources/thumbnail.tiff
 	@echo "Built $(SAVER_DIR)"
 
 # Sign the .saver bundle and its embedded binary

@@ -29,8 +29,7 @@ func main() {
 	w.SetContent(viewer.Content())
 
 	w.SetCloseIntercept(func() {
-		client.Close()
-		w.Close()
+		viewer.Exit()
 	})
 
 	// Handle SIGTERM (sent by screensaver wrapper on deactivation)
@@ -39,8 +38,7 @@ func main() {
 	go func() {
 		<-sigCh
 		log.Println("Signal received, shutting down")
-		client.Close()
-		a.Quit()
+		viewer.Exit()
 	}()
 
 	go func() {

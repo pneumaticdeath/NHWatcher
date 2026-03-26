@@ -2,23 +2,39 @@
 
 @implementation NHWatcherView {
     NSTask *_task;
-    BOOL _isPreview;
+    NSImage *_previewImage;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview {
     self = [super initWithFrame:frame isPreview:isPreview];
     if (self) {
-        _isPreview = isPreview;
         [self setAnimationTimeInterval:1.0/30.0];
+        [self setWantsLayer:YES];
+
+        // Pre-load the preview image from the bundle
+        NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+        NSString *imgPath = [bundle pathForResource:@"preview" ofType:@"png"];
+        if (imgPath) {
+            _previewImage = [[NSImage alloc] initWithContentsOfFile:imgPath];
+        }
     }
     return self;
+}
+
+// Returns YES only when running as the actual screensaver (fullscreen,
+// high window level), not in any System Settings preview context.
+- (BOOL)isActualScreenSaver {
+    NSWindow *win = [self window];
+    if (!win) return NO;
+    return [win level] >= NSScreenSaverWindowLevel;
 }
 
 - (void)startAnimation {
     [super startAnimation];
 
-    // Don't launch the app in the small preview window
-    if (_isPreview) {
+    // Only launch the Go binary for the real screensaver, not any
+    // System Settings preview (including full-size hover previews).
+    if (![self isActualScreenSaver]) {
         return;
     }
 
@@ -31,31 +47,43 @@
 }
 
 - (void)drawRect:(NSRect)rect {
-    // Fill with black — the Go app renders in its own window
     [[NSColor blackColor] setFill];
     NSRectFill(rect);
 
-    if (_isPreview) {
-        // Show the icon in the preview pane
-        NSBundle *bundle = [NSBundle bundleForClass:[self class]];
-        NSString *iconPath = [bundle pathForResource:@"icon" ofType:@"png"];
-        if (iconPath) {
-            NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-            if (icon) {
-                // Scale icon to fit preview with padding
-                CGFloat padding = rect.size.width * 0.15;
-                CGFloat side = fmin(rect.size.width, rect.size.height) - padding * 2;
-                NSRect iconRect = NSMakeRect(
-                    (rect.size.width - side) / 2,
-                    (rect.size.height - side) / 2,
-                    side, side
-                );
-                [icon drawInRect:iconRect
-                        fromRect:NSZeroRect
-                       operation:NSCompositingOperationSourceOver
-                        fraction:0.8];
-            }
-        }
+    if ([self isActualScreenSaver]) {
+        return;
+    }
+
+    // Draw the preview image in all non-screensaver contexts
+    // (grid thumbnail, hover preview, etc.)
+    NSRect bounds = [self bounds];
+    if (bounds.size.width < 1 || bounds.size.height < 1) {
+        return;
+    }
+    if (!_previewImage) {
+        return;
+    }
+
+    NSSize imgSize = [_previewImage size];
+    CGFloat scaleX = bounds.size.width / imgSize.width;
+    CGFloat scaleY = bounds.size.height / imgSize.height;
+    CGFloat scale = fmax(scaleX, scaleY);
+    CGFloat drawW = imgSize.width * scale;
+    CGFloat drawH = imgSize.height * scale;
+    NSRect drawRect = NSMakeRect(
+        (bounds.size.width - drawW) / 2,
+        (bounds.size.height - drawH) / 2,
+        drawW, drawH
+    );
+    [_previewImage drawInRect:drawRect
+                     fromRect:NSZeroRect
+                    operation:NSCompositingOperationSourceOver
+                     fraction:1.0];
+}
+
+- (void)animateOneFrame {
+    if (![self isActualScreenSaver]) {
+        [self setNeedsDisplay:YES];
     }
 }
 
@@ -72,7 +100,6 @@
         return;
     }
 
-    // The nhwatcher binary is bundled inside Resources/
     NSBundle *bundle = [NSBundle bundleForClass:[self class]];
     NSString *binPath = [bundle pathForResource:@"nhwatcher" ofType:nil];
 
@@ -85,7 +112,6 @@
     [_task setExecutableURL:[NSURL fileURLWithPath:binPath]];
     [_task setArguments:@[@"--screensaver"]];
 
-    // Capture stderr for logging
     NSPipe *errPipe = [NSPipe pipe];
     [_task setStandardError:errPipe];
 
@@ -99,7 +125,6 @@
 
     NSLog(@"NHWatcher: launched viewer (PID %d)", [_task processIdentifier]);
 
-    // Log stderr output in the background
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         NSData *data = [[errPipe fileHandleForReading] readDataToEndOfFile];
         if (data.length > 0) {

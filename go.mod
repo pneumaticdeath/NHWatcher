@@ -6,6 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.7.1-0.20251105193630-e5ef0983771f
 	github.com/fyne-io/terminal v0.0.0-20260111183336-44f6f1d255b7
 	golang.org/x/crypto v0.49.0
+	golang.org/x/image v0.38.0
 )
 
 require (
@@ -38,7 +39,6 @@ require (
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
-	golang.org/x/image v0.38.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

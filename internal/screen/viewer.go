@@ -54,15 +54,15 @@ func NewViewer(w fyne.Window, client *nao.Client, screensaverMode bool) *Viewer 
 	if screensaverMode {
 		// Any keypress exits, like a screensaver
 		w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
-			v.exit()
+			v.Exit()
 		})
 		w.Canvas().SetOnTypedRune(func(r rune) {
-			v.exit()
+			v.Exit()
 		})
 	} else {
 		w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
 			if ev.Name == fyne.KeyEscape {
-				v.exit()
+				v.Exit()
 			}
 		})
 		w.Canvas().SetOnTypedRune(func(r rune) {
@@ -70,7 +70,7 @@ func NewViewer(w fyne.Window, client *nao.Client, screensaverMode bool) *Viewer 
 			case 's', 'S':
 				v.requestSwitch()
 			case 'q', 'Q':
-				v.exit()
+				v.Exit()
 			}
 		})
 	}
@@ -85,9 +85,11 @@ func (v *Viewer) requestSwitch() {
 	}
 }
 
-func (v *Viewer) exit() {
+// Exit shuts down the viewer, closing the SSH connection and window.
+func (v *Viewer) Exit() {
 	select {
 	case <-v.quit:
+		return
 	default:
 		close(v.quit)
 	}

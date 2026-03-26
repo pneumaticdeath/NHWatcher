@@ -4,7 +4,7 @@ Website = "https://patenaude.io/"
 Icon = "icon.png"
 Name = "NHWatcher"
 ID = "io.patenaude.nhwatcher"
-Version = "0.1.2"
+Version = "0.1.3"
 Build = 0
 
 [LinuxAndBSD]
