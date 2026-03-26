@@ -39,6 +39,13 @@ jobs:
             -k "" "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
+      # Set version from git tag (strip leading 'v')
+      - name: Set version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+          sed -i '' "s/^Version = .*/Version = \"$TAG_VERSION\"/" FyneApp.toml
+
       # Build universal binary and .saver bundle
       - name: Build
         run: make saver-universal
