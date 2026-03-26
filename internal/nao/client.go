@@ -90,6 +90,9 @@ func (c *Client) Connect(cols, rows int) (io.WriteCloser, io.Reader, error) {
 		return nil, nil, fmt.Errorf("ssh session: %w", err)
 	}
 
+	// Identify ourselves to dgamelaunch
+	c.session.Setenv("DGAME_CLIENT_TYPE", "nhwatcher")
+
 	if err := c.session.RequestPty("xterm-256color", rows, cols, ssh.TerminalModes{
 		ssh.ECHO: 0,
 	}); err != nil {
