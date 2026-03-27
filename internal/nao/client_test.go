@@ -1,6 +1,8 @@
 package nao
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestParseGameList(t *testing.T) {
 	// Actual output from NAO after ANSI stripping (entries run together)
@@ -51,6 +53,56 @@ func TestParseGameList(t *testing.T) {
 		}
 		if g.FitsIn(80, 24) != want.fits {
 			t.Errorf("selector %s (%s): FitsIn(80,24) = %v, want %v", sel, g.Player, g.FitsIn(80, 24), want.fits)
+		}
+	}
+}
+
+func TestParseGameListHardfought(t *testing.T) {
+	// Actual output from us.hardfought.org after ANSI stripping.
+	// Hardfought has different game names, extra "W" and "Extra" columns,
+	// and some games show "N/A" for size.
+	input := ` a) Enigmic         nndnh0118  139x 29  2026-03-27 18:27:39            0  A Endb) griffs          nh370.132  162x 47  2026-03-27 17:42:54            0    S1c) somebody        evil092     80x 25  2026-03-27 18:00:00  2m 30s   0    M4d) tau             evil092    150x 47  2026-03-27 16:28:08            0  A S1e) gruefood        hackem132   80x 25  2026-03-27 17:53:33  1m 25s   0    M4f) Pullings        nh4        N/A      2026-03-27 18:18:01  17m 47s  0(1-6 of 6)Watch which game? ('?' for help) =>`
+
+	games := ParseGameList(input)
+
+	// N/A game (Pullings/nh4) should be skipped — regex won't match
+	if len(games) != 5 {
+		t.Errorf("expected 5 games (N/A skipped), got %d", len(games))
+		for _, g := range games {
+			t.Logf("  %s) %-16s %dx%d idle=%q", g.Selector, g.Player, g.Cols, g.Rows, g.Idle)
+		}
+	}
+
+	checks := map[string]struct {
+		player string
+		cols   int
+		rows   int
+		idle   bool
+	}{
+		"a": {"Enigmic", 139, 29, false},
+		"b": {"griffs", 162, 47, false},
+		"c": {"somebody", 80, 25, true},  // 2m 30s
+		"d": {"tau", 150, 47, false},
+		"e": {"gruefood", 80, 25, true},  // 1m 25s
+	}
+	gameMap := make(map[string]Game)
+	for _, g := range games {
+		gameMap[g.Selector] = g
+	}
+	for sel, want := range checks {
+		g, ok := gameMap[sel]
+		if !ok {
+			t.Errorf("missing game with selector %q", sel)
+			continue
+		}
+		if g.Player != want.player {
+			t.Errorf("selector %s: player = %q, want %q", sel, g.Player, want.player)
+		}
+		if g.Cols != want.cols || g.Rows != want.rows {
+			t.Errorf("selector %s: size = %dx%d, want %dx%d", sel, g.Cols, g.Rows, want.cols, want.rows)
+		}
+		if g.IsIdle() != want.idle {
+			t.Errorf("selector %s (%s): IsIdle() = %v, want %v (idle=%q)", sel, g.Player, g.IsIdle(), want.idle, g.Idle)
 		}
 	}
 }

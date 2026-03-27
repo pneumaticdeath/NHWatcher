@@ -16,11 +16,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const (
-	sshHost = "nethack.alt.org:22"
-	sshUser = "nethack"
-)
-
 // selectorChars matches dgamelaunch's selector sequence (no 'q' or 'Q').
 const selectorChars = "abcdefghijklmnoprstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ"
 
@@ -43,9 +38,10 @@ func (g Game) IsIdle() bool {
 	return g.Idle != ""
 }
 
-// Client manages an SSH connection to nethack.alt.org for spectating.
+// Client manages an SSH connection to a dgamelaunch server for spectating.
 type Client struct {
 	mu      sync.Mutex
+	server  ServerConfig
 	session *ssh.Session
 	client  *ssh.Client
 	stdin   io.WriteCloser
@@ -54,9 +50,14 @@ type Client struct {
 	ptyRows int
 }
 
-// NewClient creates a new NAO client.
-func NewClient() *Client {
-	return &Client{}
+// NewClient creates a new client for the given server.
+func NewClient(server ServerConfig) *Client {
+	return &Client{server: server}
+}
+
+// Server returns the server configuration for this client.
+func (c *Client) Server() ServerConfig {
+	return c.server
 }
 
 // Connect establishes an SSH connection to NAO and returns
@@ -70,7 +71,7 @@ func (c *Client) Connect(cols, rows int) (io.WriteCloser, io.Reader, error) {
 	c.ptyRows = rows
 
 	config := &ssh.ClientConfig{
-		User: sshUser,
+		User: c.server.SSHUser,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(""),
 		},
@@ -79,7 +80,7 @@ func (c *Client) Connect(cols, rows int) (io.WriteCloser, io.Reader, error) {
 	}
 
 	var err error
-	c.client, err = ssh.Dial("tcp", sshHost, config)
+	c.client, err = ssh.Dial("tcp", c.server.SSHHost, config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ssh dial: %w", err)
 	}
@@ -270,8 +271,18 @@ func stripANSI(s string) string {
 
 // ParseGameList extracts games from dgamelaunch watch menu output.
 // After ANSI stripping, entries run together (no newlines) with a watcher
-// count between them. Example:
-//   a) Badger004        nh367  182x 35  2026-03-23 16:46:50  12m 24s  0b) BatBeefs ...
+// count between them. Works with both NAO and hardfought formats.
+//
+// NAO example:
+//
+//	a) Badger004        nh367  182x 35  2026-03-23 16:46:50  12m 24s  0b) BatBeefs ...
+//
+// Hardfought example (extra "W" and "Extra" columns):
+//
+//	a) Enigmic         nndnh0118  139x 29  2026-03-27 18:27:39            0  A End
+//	k) Pullings        nh4        N/A      2026-03-27 18:18:01  17m 47s  0
+//
+// Games with "N/A" size are skipped (can't determine if they fit).
 // Idle column is blank for actively playing games (idle <= 4s).
 func ParseGameList(output string) []Game {
 	clean := stripANSI(output)
@@ -279,11 +290,10 @@ func ParseGameList(output string) []Game {
 
 	// Match each game entry anywhere in the text.
 	// Captures: 1=selector, 2=player, 3=cols, 4=rows, 5=idle time (may be empty)
-	// At wide terminal widths, dgamelaunch may run fields together:
-	//   "DudeZappynh367" (player+game) and "19:04:230" (time+watchers)
-	// so we use \s* where fields may lack whitespace, and explicitly
-	// match the game name (nh\d+) to separate it from the player name.
-	gameRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+?)\s*nh\d+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
+	// The game name (\S+) is matched but not captured.
+	// At wide terminal widths on NAO, fields may run together — in that
+	// case we may miss a few entries, which is fine.
+	gameRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
 
 	for _, m := range gameRe.FindAllStringSubmatch(clean, -1) {
 		cols, _ := strconv.Atoi(m[3])

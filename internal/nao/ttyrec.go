@@ -12,12 +12,12 @@ import (
 	"github.com/pneumaticdeath/NH_Watcher/internal/ttyrec"
 )
 
-const ttyrecBaseURL = "https://alt.org/nethack/userdata"
-
-// ttyrecDirURL returns the URL for a player's ttyrec directory.
-func ttyrecDirURL(player string) string {
-	firstChar := string(player[0])
-	return fmt.Sprintf("%s/%s/%s/ttyrec/", ttyrecBaseURL, firstChar, player)
+// ttyrecDirURL returns the URL for a player's ttyrec directory on the given server.
+func ttyrecDirURL(server ServerConfig, player string) string {
+	if server.TtyrecURL == "" || server.TtyrecPath == nil {
+		return ""
+	}
+	return server.TtyrecURL + server.TtyrecPath(player)
 }
 
 // ttyrecFileRe matches ttyrec filenames in the directory listing.
@@ -25,8 +25,12 @@ var ttyrecFileRe = regexp.MustCompile(`href="(\d{4}-\d{2}-\d{2}\.\d{2}:\d{2}:\d{
 
 // listTTYRecs fetches the directory listing for a player and returns
 // available ttyrec filenames.
-func listTTYRecs(player string) ([]string, error) {
-	resp, err := http.Get(ttyrecDirURL(player))
+func listTTYRecs(server ServerConfig, player string) ([]string, error) {
+	url := ttyrecDirURL(server, player)
+	if url == "" {
+		return nil, fmt.Errorf("no ttyrec URL configured for %s", server.Name)
+	}
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch dir listing: %w", err)
 	}
@@ -49,10 +53,13 @@ func listTTYRecs(player string) ([]string, error) {
 	return files, nil
 }
 
-// FetchRandomTTYRec tries to find and download a ttyrec recording from NAO.
-// It checks the given player names (e.g. from the watch list) for available
-// recordings and downloads a random one.
-func FetchRandomTTYRec(players []string) ([]ttyrec.Frame, string, error) {
+// FetchRandomTTYRec tries to find and download a ttyrec recording from the
+// given server. It checks the given player names (e.g. from the watch list)
+// for available recordings and downloads a random one.
+func FetchRandomTTYRec(server ServerConfig, players []string) ([]ttyrec.Frame, string, error) {
+	if server.TtyrecURL == "" {
+		return nil, "", fmt.Errorf("no ttyrec support for %s", server.Name)
+	}
 	// Shuffle players so we don't always check the same order
 	shuffled := make([]string, len(players))
 	copy(shuffled, players)
@@ -68,7 +75,7 @@ func FetchRandomTTYRec(players []string) ([]ttyrec.Frame, string, error) {
 	var available []recording
 
 	for _, player := range shuffled {
-		files, err := listTTYRecs(player)
+		files, err := listTTYRecs(server, player)
 		if err != nil {
 			log.Printf("ttyrec listing for %s: %v", player, err)
 			continue
@@ -88,7 +95,7 @@ func FetchRandomTTYRec(players []string) ([]ttyrec.Frame, string, error) {
 
 	// Pick a random recording
 	chosen := available[rand.IntN(len(available))]
-	url := fmt.Sprintf("%s%s", ttyrecDirURL(chosen.player), chosen.file)
+	url := ttyrecDirURL(server, chosen.player) + chosen.file
 	log.Printf("Downloading ttyrec: %s", url)
 
 	frames, err := downloadTTYRec(url)

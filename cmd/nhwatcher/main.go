@@ -18,6 +18,7 @@ import (
 
 func main() {
 	screensaverMode := flag.Bool("screensaver", false, "run in screensaver mode (frames on stdout, any key exits)")
+	serverFlag := flag.String("servers", "", "comma-separated server list: nao,hdf-us,hdf-eu,hdf-au (default: all)")
 	flag.Parse()
 
 	// Auto-detect screensaver mode from executable path or env
@@ -54,8 +55,25 @@ func main() {
 		w.SetFullScreen(true)
 	}
 
-	client := nao.NewClient()
-	viewer := screen.NewViewer(w, client, *screensaverMode)
+	// Select servers
+	servers := nao.AllServers
+	if *serverFlag != "" {
+		keys := strings.Split(*serverFlag, ",")
+		if s := nao.ServersByKey(keys); len(s) > 0 {
+			servers = s
+		} else {
+			log.Printf("Unknown server keys %q, using all servers", *serverFlag)
+		}
+	}
+	log.Printf("Servers: %v", func() []string {
+		names := make([]string, len(servers))
+		for i, s := range servers {
+			names[i] = s.Name
+		}
+		return names
+	}())
+
+	viewer := screen.NewViewer(w, servers, *screensaverMode)
 
 	// When the viewer exits, quit the Fyne app.
 	viewer.SetOnQuit(func() {

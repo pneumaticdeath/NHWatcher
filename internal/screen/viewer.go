@@ -86,7 +86,9 @@ const idleTimeout = 2 * time.Minute
 // Viewer manages the terminal display and game watching lifecycle.
 type Viewer struct {
 	window          fyne.Window
-	client          *nao.Client
+	servers         []nao.ServerConfig
+	clients         []*nao.Client
+	serverIdx       int // current server index
 	term            *terminal.Terminal
 	status          *widget.Label
 	container       *fyne.Container
@@ -100,15 +102,32 @@ type Viewer struct {
 	onQuit          func()    // called to quit the Fyne app
 }
 
+// currentClient returns the client for the current server.
+func (v *Viewer) currentClient() *nao.Client {
+	return v.clients[v.serverIdx]
+}
+
+// rotateServer advances to the next server in the list.
+func (v *Viewer) rotateServer() {
+	v.serverIdx = (v.serverIdx + 1) % len(v.servers)
+	v.lastPlayer = "" // reset avoid-player on server switch
+}
+
 // NewViewer creates a new screensaver viewer. If screensaverMode is true,
 // any keypress or mouse movement exits. Otherwise, 's' switches games and Escape/Q quits.
-func NewViewer(w fyne.Window, client *nao.Client, screensaverMode bool) *Viewer {
+func NewViewer(w fyne.Window, servers []nao.ServerConfig, screensaverMode bool) *Viewer {
 	t := terminal.New()
-	status := widget.NewLabel("Connecting to nethack.alt.org...")
+	status := widget.NewLabel("Connecting...")
+
+	clients := make([]*nao.Client, len(servers))
+	for i, s := range servers {
+		clients[i] = nao.NewClient(s)
+	}
 
 	v := &Viewer{
 		window:          w,
-		client:          client,
+		servers:         servers,
+		clients:         clients,
 		term:            t,
 		status:          status,
 		quit:            make(chan struct{}),
@@ -158,7 +177,7 @@ func (v *Viewer) requestSwitch() {
 	}
 }
 
-// Exit shuts down the viewer, closing the SSH connection and quitting the app.
+// Exit shuts down the viewer, closing all SSH connections and quitting the app.
 // Safe to call from any goroutine.
 func (v *Viewer) Exit() {
 	select {
@@ -167,7 +186,9 @@ func (v *Viewer) Exit() {
 	default:
 		close(v.quit)
 	}
-	v.client.Close()
+	for _, c := range v.clients {
+		c.Close()
+	}
 	if v.onQuit != nil {
 		v.onQuit()
 	}
@@ -337,20 +358,29 @@ func (v *Viewer) Start() error {
 		default:
 		}
 
+		server := v.servers[v.serverIdx]
+		fyne.Do(func() {
+			v.status.SetText(fmt.Sprintf("Connecting to %s...", server.Name))
+		})
+
 		reason, err := v.watchOne()
 		if err != nil {
-			log.Printf("No live game available: %v", err)
+			log.Printf("[%s] No live game available: %v", server.Name, err)
 			// Fall back to ttyrec playback
 			if ttyErr := v.playTTYRec(); ttyErr != nil {
-				log.Printf("ttyrec fallback failed: %v", ttyErr)
+				log.Printf("[%s] ttyrec fallback failed: %v", server.Name, ttyErr)
+				// Rotate to next server before retrying
+				v.rotateServer()
 				fyne.Do(func() {
-					v.status.SetText("No games or recordings available — retrying...")
+					v.status.SetText(fmt.Sprintf("No games on %s — trying next server...", server.Name))
 				})
-				time.Sleep(10 * time.Second)
+				time.Sleep(3 * time.Second)
 			}
 			continue
 		}
-		log.Printf("Switching game: %s", reason)
+		log.Printf("[%s] Switching game: %s", server.Name, reason)
+		// Rotate server on each game switch for variety
+		v.rotateServer()
 		fyne.Do(func() {
 			v.status.SetText(fmt.Sprintf("Switching game (%s)...", reason))
 		})
@@ -376,27 +406,29 @@ func (v *Viewer) watchOne() (nao.SwitchReason, error) {
 	// Allow an extra layout cycle for the terminal to be fully sized
 	time.Sleep(200 * time.Millisecond)
 
-	v.client.Close()
-	stdin, stdout, err := v.client.Connect(v.cols, v.rows)
+	client := v.currentClient()
+	server := v.servers[v.serverIdx]
+	client.Close()
+	stdin, stdout, err := client.Connect(v.cols, v.rows)
 	if err != nil {
-		return 0, fmt.Errorf("connect: %w", err)
+		return 0, fmt.Errorf("connect to %s: %w", server.Name, err)
 	}
 
 	fyne.Do(func() {
-		v.status.SetText("Connected — selecting a game...")
+		v.status.SetText(fmt.Sprintf("Connected to %s — selecting a game...", server.Name))
 	})
-	log.Println("Connected to nethack.alt.org")
+	log.Printf("Connected to %s", server.Name)
 
-	player, err := v.client.WatchRandomGame(v.lastPlayer)
+	player, err := client.WatchRandomGame(v.lastPlayer)
 	if err != nil {
 		return 0, fmt.Errorf("select game: %w", err)
 	}
 	v.lastPlayer = player
 
 	fyne.Do(func() {
-		v.status.SetText(fmt.Sprintf("Watching %s", player))
+		v.status.SetText(fmt.Sprintf("Watching %s on %s", player, server.Name))
 	})
-	log.Printf("Watching player: %s", player)
+	log.Printf("Watching player: %s on %s", player, server.Name)
 
 	// Wrap stdout with the monitor for idle/game-over detection
 	monitor := nao.NewMonitoredReader(stdout, idleTimeout)
@@ -455,16 +487,19 @@ func (v *Viewer) playTTYRec() error {
 		v.status.SetText("No live games — looking for recordings...")
 	})
 
+	client := v.currentClient()
+	server := v.servers[v.serverIdx]
+
 	// Get the player list to use as ttyrec candidates
-	players, err := v.client.GetRecentPlayers(v.cols, v.rows)
+	players, err := client.GetRecentPlayers(v.cols, v.rows)
 	if err != nil {
-		return fmt.Errorf("get players: %w", err)
+		return fmt.Errorf("get players from %s: %w", server.Name, err)
 	}
 	if len(players) == 0 {
-		return fmt.Errorf("no players found")
+		return fmt.Errorf("no players found on %s", server.Name)
 	}
 
-	frames, label, err := nao.FetchRandomTTYRec(players)
+	frames, label, err := nao.FetchRandomTTYRec(server, players)
 	if err != nil {
 		return fmt.Errorf("fetch ttyrec: %w", err)
 	}

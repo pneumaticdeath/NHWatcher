@@ -62,7 +62,10 @@
     }
 
     if (_latestFrame) {
-        [_latestFrame drawInRect:rect
+        // Inset by 3% for overscan-safe margins on older monitors
+        CGFloat inset = fmin(rect.size.width, rect.size.height) * 0.03;
+        NSRect safeRect = NSInsetRect(rect, inset, inset);
+        [_latestFrame drawInRect:safeRect
                         fromRect:NSZeroRect
                        operation:NSCompositingOperationSourceOver
                         fraction:1.0];
