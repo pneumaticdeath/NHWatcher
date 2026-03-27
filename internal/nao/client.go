@@ -279,7 +279,11 @@ func ParseGameList(output string) []Game {
 
 	// Match each game entry anywhere in the text.
 	// Captures: 1=selector, 2=player, 3=cols, 4=rows, 5=idle time (may be empty)
-	gameRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
+	// At wide terminal widths, dgamelaunch may run fields together:
+	//   "DudeZappynh367" (player+game) and "19:04:230" (time+watchers)
+	// so we use \s* where fields may lack whitespace, and explicitly
+	// match the game name (nh\d+) to separate it from the player name.
+	gameRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+?)\s*nh\d+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
 
 	for _, m := range gameRe.FindAllStringSubmatch(clean, -1) {
 		cols, _ := strconv.Atoi(m[3])

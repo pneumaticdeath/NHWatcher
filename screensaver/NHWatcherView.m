@@ -1,43 +1,28 @@
 #import "NHWatcherView.h"
+#import <signal.h>
 
 @implementation NHWatcherView {
-    NSTask *_task;
-    NSImage *_previewImage;
+    NSTask *_viewerTask;
+    NSPipe *_framePipe;
+    NSImage *_latestFrame;
+    NSMutableData *_readBuffer;
+    BOOL _isPreview;
+    BOOL _reading;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview {
     self = [super initWithFrame:frame isPreview:isPreview];
     if (self) {
-        [self setAnimationTimeInterval:1.0/30.0];
-        [self setWantsLayer:YES];
-
-        // Pre-load the preview image from the bundle
-        NSBundle *bundle = [NSBundle bundleForClass:[self class]];
-        NSString *imgPath = [bundle pathForResource:@"preview" ofType:@"png"];
-        if (imgPath) {
-            _previewImage = [[NSImage alloc] initWithContentsOfFile:imgPath];
-        }
+        _isPreview = isPreview;
+        _readBuffer = [NSMutableData data];
+        [self setAnimationTimeInterval:1.0/10.0];
     }
     return self;
 }
 
-// Returns YES only when running as the actual screensaver (fullscreen,
-// high window level), not in any System Settings preview context.
-- (BOOL)isActualScreenSaver {
-    NSWindow *win = [self window];
-    if (!win) return NO;
-    return [win level] >= NSScreenSaverWindowLevel;
-}
-
 - (void)startAnimation {
     [super startAnimation];
-
-    // Only launch the Go binary for the real screensaver, not any
-    // System Settings preview (including full-size hover previews).
-    if (![self isActualScreenSaver]) {
-        return;
-    }
-
+    if (_isPreview) return;
     [self launchViewer];
 }
 
@@ -46,101 +31,142 @@
     [self terminateViewer];
 }
 
+- (void)animateOneFrame {
+    [self setNeedsDisplay:YES];
+}
+
 - (void)drawRect:(NSRect)rect {
     [[NSColor blackColor] setFill];
     NSRectFill(rect);
 
-    if ([self isActualScreenSaver]) {
+    if (_isPreview) {
+        NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+        NSString *iconPath = [bundle pathForResource:@"icon" ofType:@"png"];
+        if (iconPath) {
+            NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+            if (icon) {
+                CGFloat padding = rect.size.width * 0.15;
+                CGFloat side = fmin(rect.size.width, rect.size.height) - padding * 2;
+                NSRect iconRect = NSMakeRect(
+                    (rect.size.width - side) / 2,
+                    (rect.size.height - side) / 2,
+                    side, side
+                );
+                [icon drawInRect:iconRect
+                        fromRect:NSZeroRect
+                       operation:NSCompositingOperationSourceOver
+                        fraction:0.8];
+            }
+        }
         return;
     }
 
-    // Draw the preview image in all non-screensaver contexts
-    // (grid thumbnail, hover preview, etc.)
-    NSRect bounds = [self bounds];
-    if (bounds.size.width < 1 || bounds.size.height < 1) {
-        return;
-    }
-    if (!_previewImage) {
-        return;
-    }
-
-    NSSize imgSize = [_previewImage size];
-    CGFloat scaleX = bounds.size.width / imgSize.width;
-    CGFloat scaleY = bounds.size.height / imgSize.height;
-    CGFloat scale = fmax(scaleX, scaleY);
-    CGFloat drawW = imgSize.width * scale;
-    CGFloat drawH = imgSize.height * scale;
-    NSRect drawRect = NSMakeRect(
-        (bounds.size.width - drawW) / 2,
-        (bounds.size.height - drawH) / 2,
-        drawW, drawH
-    );
-    [_previewImage drawInRect:drawRect
-                     fromRect:NSZeroRect
-                    operation:NSCompositingOperationSourceOver
-                     fraction:1.0];
-}
-
-- (void)animateOneFrame {
-    if (![self isActualScreenSaver]) {
-        [self setNeedsDisplay:YES];
+    if (_latestFrame) {
+        [_latestFrame drawInRect:rect
+                        fromRect:NSZeroRect
+                       operation:NSCompositingOperationSourceOver
+                        fraction:1.0];
     }
 }
 
-- (BOOL)hasConfigureSheet {
-    return NO;
+// Read length-prefixed PNG frames from the viewer's stdout pipe.
+// Frame format: [4-byte big-endian uint32 length][PNG data]
+- (void)readFramesFromPipe:(NSFileHandle *)handle {
+    _reading = YES;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        while (self->_reading) {
+            @autoreleasepool {
+                // Read 4-byte length header
+                NSData *lengthData = [self readExactly:4 from:handle];
+                if (!lengthData) break;
+
+                const uint8_t *bytes = [lengthData bytes];
+                uint32_t length = ((uint32_t)bytes[0] << 24) |
+                                  ((uint32_t)bytes[1] << 16) |
+                                  ((uint32_t)bytes[2] << 8)  |
+                                  ((uint32_t)bytes[3]);
+
+                if (length == 0 || length > 10 * 1024 * 1024) {
+                    NSLog(@"NHWatcher: invalid frame length: %u", length);
+                    break;
+                }
+
+                // Read PNG data
+                NSData *pngData = [self readExactly:length from:handle];
+                if (!pngData) break;
+
+                NSImage *frame = [[NSImage alloc] initWithData:pngData];
+                if (frame) {
+                    self->_latestFrame = frame;
+                }
+            }
+        }
+        NSLog(@"NHWatcher: frame reader exited");
+    });
 }
 
-- (NSWindow *)configureSheet {
-    return nil;
+- (NSData *)readExactly:(NSUInteger)count from:(NSFileHandle *)handle {
+    NSMutableData *result = [NSMutableData dataWithCapacity:count];
+    while ([result length] < count) {
+        @try {
+            NSData *chunk = [handle readDataOfLength:count - [result length]];
+            if ([chunk length] == 0) return nil;  // EOF
+            [result appendData:chunk];
+        } @catch (NSException *e) {
+            NSLog(@"NHWatcher: pipe read error: %@", e);
+            return nil;
+        }
+    }
+    return result;
 }
+
+- (BOOL)hasConfigureSheet { return NO; }
+- (NSWindow *)configureSheet { return nil; }
 
 - (void)launchViewer {
-    if (_task && [_task isRunning]) {
-        return;
-    }
+    if (_viewerTask && [_viewerTask isRunning]) return;
 
     NSBundle *bundle = [NSBundle bundleForClass:[self class]];
     NSString *binPath = [bundle pathForResource:@"nhwatcher" ofType:nil];
-
     if (!binPath) {
         NSLog(@"NHWatcher: nhwatcher binary not found in bundle Resources");
         return;
     }
 
-    _task = [[NSTask alloc] init];
-    [_task setExecutableURL:[NSURL fileURLWithPath:binPath]];
-    [_task setArguments:@[@"--screensaver"]];
+    _framePipe = [NSPipe pipe];
+    _viewerTask = [[NSTask alloc] init];
+    [_viewerTask setExecutableURL:[NSURL fileURLWithPath:binPath]];
+    [_viewerTask setArguments:@[@"--screensaver"]];
+    [_viewerTask setStandardOutput:_framePipe];
+    [_viewerTask setEnvironment:@{
+        @"HOME": NSHomeDirectory(),
+        @"USER": NSUserName(),
+        @"NHWATCHER_SCREENSAVER": @"1"
+    }];
 
-    NSPipe *errPipe = [NSPipe pipe];
-    [_task setStandardError:errPipe];
+    NSLog(@"NHWatcher: launching viewer at %@", binPath);
 
     NSError *error = nil;
-    [_task launchAndReturnError:&error];
+    [_viewerTask launchAndReturnError:&error];
     if (error) {
         NSLog(@"NHWatcher: failed to launch: %@", error);
-        _task = nil;
         return;
     }
 
-    NSLog(@"NHWatcher: launched viewer (PID %d)", [_task processIdentifier]);
-
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        NSData *data = [[errPipe fileHandleForReading] readDataToEndOfFile];
-        if (data.length > 0) {
-            NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            NSLog(@"NHWatcher stderr: %@", output);
-        }
-    });
+    NSLog(@"NHWatcher: viewer launched (PID %d)", [_viewerTask processIdentifier]);
+    [self readFramesFromPipe:[_framePipe fileHandleForReading]];
 }
 
 - (void)terminateViewer {
-    if (_task && [_task isRunning]) {
-        NSLog(@"NHWatcher: terminating viewer (PID %d)", [_task processIdentifier]);
-        [_task terminate];
-        [_task waitUntilExit];
+    _reading = NO;
+    if (_viewerTask && [_viewerTask isRunning]) {
+        NSLog(@"NHWatcher: terminating viewer (PID %d)", [_viewerTask processIdentifier]);
+        [_viewerTask terminate];
+        [_viewerTask waitUntilExit];
     }
-    _task = nil;
+    _viewerTask = nil;
+    _framePipe = nil;
+    _latestFrame = nil;
 }
 
 - (void)dealloc {
