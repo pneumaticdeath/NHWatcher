@@ -362,12 +362,19 @@ func (v *Viewer) Start() error {
 // watchOne connects to NAO, watches a single game, and returns when
 // the game should be switched (idle timeout, game over, or EOF).
 func (v *Viewer) watchOne() (nao.SwitchReason, error) {
-	// Fresh terminal widget for each game
+	// Fresh terminal widget for each game. We must wait for Fyne to
+	// lay out the widget before calling RunWithConnection, otherwise
+	// FyneTerm's internal row/col counts won't match the grid size.
 	v.term = terminal.New()
+	layoutDone := make(chan struct{})
 	fyne.Do(func() {
 		v.container.Objects[0] = v.term
 		v.container.Refresh()
+		close(layoutDone)
 	})
+	<-layoutDone
+	// Allow an extra layout cycle for the terminal to be fully sized
+	time.Sleep(200 * time.Millisecond)
 
 	v.client.Close()
 	stdin, stdout, err := v.client.Connect(v.cols, v.rows)
@@ -397,11 +404,36 @@ func (v *Viewer) watchOne() (nao.SwitchReason, error) {
 
 	// RunWithConnection blocks until the reader returns an error.
 	// Run it in a goroutine so we can also wait on the switch channel.
+	// Recover from FyneTerm panics (e.g. scrollUp index-out-of-range
+	// when the widget hasn't been fully laid out).
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("FyneTerm panic (recovered): %v", r)
+			}
+			close(done)
+		}()
 		v.term.RunWithConnection(stdin, monitor)
-		close(done)
 	}()
+
+	// FyneTerm skips Refresh() when there's leftover data in its read
+	// buffer, which causes partial-update artifacts with curses games.
+	// Periodically force a refresh to compensate.
+	stopRefresh := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				fyne.Do(func() { v.term.Refresh() })
+			case <-stopRefresh:
+				return
+			}
+		}
+	}()
+	defer close(stopRefresh)
 
 	// Wait for either a switch signal, the terminal finishing, user switch, or quit
 	select {
@@ -438,13 +470,17 @@ func (v *Viewer) playTTYRec() error {
 	}
 	log.Printf("Playing ttyrec: %s (%d frames)", label, len(frames))
 
-	// Fresh terminal widget
+	// Fresh terminal widget — wait for layout before starting playback
 	v.term = terminal.New()
+	layoutDone := make(chan struct{})
 	fyne.Do(func() {
 		v.container.Objects[0] = v.term
 		v.container.Refresh()
 		v.status.SetText(fmt.Sprintf("Replay: %s", label))
+		close(layoutDone)
 	})
+	<-layoutDone
+	time.Sleep(200 * time.Millisecond)
 
 	player := ttyrec.NewPlayer(frames)
 	defer player.Stop()
@@ -452,8 +488,13 @@ func (v *Viewer) playTTYRec() error {
 	// nopWriteCloser discards writes (ttyrec playback is read-only)
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("FyneTerm panic (recovered): %v", r)
+			}
+			close(done)
+		}()
 		v.term.RunWithConnection(nopWriteCloser{}, player)
-		close(done)
 	}()
 
 	select {
