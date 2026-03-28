@@ -7,7 +7,7 @@
     <key>CFBundleExecutable</key>
     <string>NHWatcher</string>
     <key>CFBundleIdentifier</key>
-    <string>com.pneumaticdeath.NHWatcher</string>
+    <string>io.patenaude.NHWatcher</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
