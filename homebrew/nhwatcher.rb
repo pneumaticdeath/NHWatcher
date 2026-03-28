@@ -4,7 +4,7 @@ cask "nhwatcher" do
 
   url "https://github.com/pneumaticdeath/NHWatcher/releases/download/v#{version}/NHWatcher-#{version}.saver.zip"
   name "NH Watcher"
-  desc "macOS screensaver that displays live NetHack games from nethack.alt.org"
+  desc "macOS screensaver that displays live NetHack games from public nethack servers."
   homepage "https://github.com/pneumaticdeath/NHWatcher"
 
   depends_on macos: ">= :ventura"
