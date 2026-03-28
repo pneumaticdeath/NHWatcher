@@ -1,8 +1,8 @@
 # NH Watcher
 
-A macOS screensaver that displays live [NetHack](https://nethack.org/) games from [nethack.alt.org](https://alt.org/nethack/).
+A macOS screensaver that displays live [NetHack](https://nethack.org/) games from [nethack.alt.org](https://alt.org/nethack/) or [hardfought.org](https://www.hardfought.org/).
 
-It connects via SSH to NAO's dgamelaunch server, picks a random active game that fits your screen, and renders the terminal output in a fullscreen window. When a game goes idle or ends, it automatically switches to another. If no live games are available, it plays back recorded games (ttyrec files) from the NAO archive.
+It connects via SSH to a dgamelaunch server, picks a random active game that fits your screen, and renders the terminal output in a fullscreen window. When a game goes idle or ends, it automatically switches to another. If no live games are available, it plays back recorded games (ttyrec files) from the NAO archive.
 
 ## Installation
 
@@ -49,7 +49,7 @@ make uninstall
 
 ## How it works
 
-1. Connects via SSH to `nethack@alt.org` (no credentials needed)
+1. Connects via SSH to `nethack@alt.org` or one of the `hardfought.org` servers (no credentials needed)
 2. Navigates the dgamelaunch watch menu
 3. Parses the game list, filters to non-idle games that fit the terminal
 4. Selects one at random and streams the live terminal output
