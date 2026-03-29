@@ -65,9 +65,9 @@ func TestParseGameListHardfought(t *testing.T) {
 
 	games := ParseGameList(input)
 
-	// N/A game (Pullings/nh4) should be skipped — regex won't match
-	if len(games) != 5 {
-		t.Errorf("expected 5 games (N/A skipped), got %d", len(games))
+	// N/A game (Pullings/nh4) should now be included with 0x0 size
+	if len(games) != 6 {
+		t.Errorf("expected 6 games (including N/A), got %d", len(games))
 		for _, g := range games {
 			t.Logf("  %s) %-16s %dx%d idle=%q", g.Selector, g.Player, g.Cols, g.Rows, g.Idle)
 		}
@@ -81,9 +81,10 @@ func TestParseGameListHardfought(t *testing.T) {
 	}{
 		"a": {"Enigmic", 139, 29, false},
 		"b": {"griffs", 162, 47, false},
-		"c": {"somebody", 80, 25, true},  // 2m 30s
+		"c": {"somebody", 80, 25, true},   // 2m 30s
 		"d": {"tau", 150, 47, false},
-		"e": {"gruefood", 80, 25, true},  // 1m 25s
+		"e": {"gruefood", 80, 25, true},   // 1m 25s
+		"f": {"Pullings", 0, 0, true},     // N/A size, 17m 47s idle
 	}
 	gameMap := make(map[string]Game)
 	for _, g := range games {
@@ -103,6 +104,13 @@ func TestParseGameListHardfought(t *testing.T) {
 		}
 		if g.IsIdle() != want.idle {
 			t.Errorf("selector %s (%s): IsIdle() = %v, want %v (idle=%q)", sel, g.Player, g.IsIdle(), want.idle, g.Idle)
+		}
+	}
+
+	// N/A games should be treated as fitting any terminal size
+	if na, ok := gameMap["f"]; ok {
+		if !na.FitsIn(80, 24) {
+			t.Error("N/A game should FitsIn(80,24)")
 		}
 	}
 }

@@ -29,7 +29,11 @@ type Game struct {
 }
 
 // FitsIn returns true if the game's terminal fits within the given dimensions.
+// Games with unknown size (N/A, cols=0 rows=0) are assumed to fit.
 func (g Game) FitsIn(cols, rows int) bool {
+	if g.Cols == 0 && g.Rows == 0 {
+		return true // unknown size, assume it fits
+	}
 	return g.Cols <= cols && g.Rows <= rows
 }
 
@@ -282,20 +286,17 @@ func stripANSI(s string) string {
 //	a) Enigmic         nndnh0118  139x 29  2026-03-27 18:27:39            0  A End
 //	k) Pullings        nh4        N/A      2026-03-27 18:18:01  17m 47s  0
 //
-// Games with "N/A" size are skipped (can't determine if they fit).
+// Games with "N/A" size get cols=0, rows=0 (FitsIn treats as unknown/fits).
 // Idle column is blank for actively playing games (idle <= 4s).
 func ParseGameList(output string) []Game {
 	clean := stripANSI(output)
 	var games []Game
 
-	// Match each game entry anywhere in the text.
+	// Match games with numeric dimensions: 139x 29
 	// Captures: 1=selector, 2=player, 3=cols, 4=rows, 5=idle time (may be empty)
-	// The game name (\S+) is matched but not captured.
-	// At wide terminal widths on NAO, fields may run together — in that
-	// case we may miss a few entries, which is fine.
-	gameRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
+	sizedRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
 
-	for _, m := range gameRe.FindAllStringSubmatch(clean, -1) {
+	for _, m := range sizedRe.FindAllStringSubmatch(clean, -1) {
 		cols, _ := strconv.Atoi(m[3])
 		rows, _ := strconv.Atoi(m[4])
 		idle := strings.TrimSpace(m[5])
@@ -307,5 +308,21 @@ func ParseGameList(output string) []Game {
 			Idle:     idle,
 		})
 	}
+
+	// Match games with N/A size (e.g. nh4 on hardfought)
+	// Captures: 1=selector, 2=player, 3=idle time (may be empty)
+	naRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+N/A\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
+
+	for _, m := range naRe.FindAllStringSubmatch(clean, -1) {
+		idle := strings.TrimSpace(m[3])
+		games = append(games, Game{
+			Selector: m[1],
+			Player:   m[2],
+			Cols:     0,
+			Rows:     0,
+			Idle:     idle,
+		})
+	}
+
 	return games
 }
