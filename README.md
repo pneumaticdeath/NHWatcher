@@ -4,6 +4,8 @@ A macOS screensaver that displays live [NetHack](https://nethack.org/) games fro
 
 It connects via SSH to a dgamelaunch server, picks a random active game that fits your screen, and renders the terminal output in a fullscreen window. When a game goes idle or ends, it automatically switches to another. If no live games are available, it plays back recorded games (ttyrec files) from the NAO archive.
 
+![Screenshot](images/screenshot.png)
+
 ## Installation
 
 ### As a screensaver
