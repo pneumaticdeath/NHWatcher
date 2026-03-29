@@ -10,6 +10,8 @@ import (
 	"io"
 	"log"
 	"math"
+	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,6 +91,8 @@ type Viewer struct {
 	servers         []nao.ServerConfig
 	clients         []*nao.Client
 	serverIdx       int // current server index
+	serverCooldown  []time.Time // per-server: don't retry before this time
+	successCount    int         // consecutive successes on current server
 	term            *terminal.Terminal
 	status          *widget.Label
 	container       *fyne.Container
@@ -107,10 +111,70 @@ func (v *Viewer) currentClient() *nao.Client {
 	return v.clients[v.serverIdx]
 }
 
-// rotateServer advances to the next server in the list.
-func (v *Viewer) rotateServer() {
-	v.serverIdx = (v.serverIdx + 1) % len(v.servers)
-	v.lastPlayer = "" // reset avoid-player on server switch
+// pickServer selects the next server to try. On success it sometimes stays
+// on the same server for variety within that server's game list, and
+// sometimes switches to a random non-cooldown server. On failure the
+// failed server gets a cooldown and we pick a random available one.
+func (v *Viewer) pickServer(failed bool) {
+	now := time.Now()
+
+	if failed {
+		// Exponential cooldown: 30s after first fail, doubling up to 5min
+		existing := v.serverCooldown[v.serverIdx]
+		base := 30 * time.Second
+		if existing.After(now) {
+			// Already on cooldown, double it
+			remaining := existing.Sub(now)
+			base = remaining * 2
+		}
+		if base > 5*time.Minute {
+			base = 5 * time.Minute
+		}
+		v.serverCooldown[v.serverIdx] = now.Add(base)
+		log.Printf("[%s] cooldown for %s", v.servers[v.serverIdx].Name, base.Round(time.Second))
+		v.successCount = 0
+	} else {
+		// Clear cooldown on success
+		v.serverCooldown[v.serverIdx] = time.Time{}
+		v.successCount++
+
+		// Stay on the same server ~3 games in a row, then switch for variety
+		if v.successCount < 3 {
+			return
+		}
+		v.successCount = 0
+	}
+
+	// Collect servers not on cooldown (excluding current on failure)
+	var candidates []int
+	for i := range v.servers {
+		if i == v.serverIdx && failed {
+			continue
+		}
+		if v.serverCooldown[i].Before(now) {
+			candidates = append(candidates, i)
+		}
+	}
+
+	if len(candidates) > 0 {
+		next := candidates[rand.IntN(len(candidates))]
+		if next != v.serverIdx {
+			v.lastPlayer = ""
+		}
+		v.serverIdx = next
+	}
+	// If no candidates, serverIdx stays as-is (all on cooldown → bundled fallback)
+}
+
+// allServersOnCooldown returns true if every server is currently on cooldown.
+func (v *Viewer) allServersOnCooldown() bool {
+	now := time.Now()
+	for i := range v.servers {
+		if v.serverCooldown[i].Before(now) {
+			return false
+		}
+	}
+	return true
 }
 
 // NewViewer creates a new screensaver viewer. If screensaverMode is true,
@@ -124,10 +188,15 @@ func NewViewer(w fyne.Window, servers []nao.ServerConfig, screensaverMode bool) 
 		clients[i] = nao.NewClient(s)
 	}
 
+	// Randomize initial server order
+	startIdx := rand.IntN(len(servers))
+
 	v := &Viewer{
 		window:          w,
 		servers:         servers,
 		clients:         clients,
+		serverIdx:       startIdx,
+		serverCooldown:  make([]time.Time, len(servers)),
 		term:            t,
 		status:          status,
 		quit:            make(chan struct{}),
@@ -351,12 +420,24 @@ func (v *Viewer) Start() error {
 		go v.captureFrames()
 	}
 
-	failCount := 0
 	for {
 		select {
 		case <-v.quit:
 			return nil
 		default:
+		}
+
+		// If all servers are on cooldown, play bundled recording while waiting
+		if v.allServersOnCooldown() {
+			log.Println("All servers on cooldown, falling back to bundled recording")
+			if bundledErr := v.playBundledTTYRec(); bundledErr != nil {
+				log.Printf("Bundled ttyrec failed: %v", bundledErr)
+				fyne.Do(func() {
+					v.status.SetText("No servers available — waiting to retry...")
+				})
+				time.Sleep(10 * time.Second)
+			}
+			continue
 		}
 
 		server := v.servers[v.serverIdx]
@@ -367,42 +448,24 @@ func (v *Viewer) Start() error {
 		reason, err := v.watchOne()
 		if err != nil {
 			log.Printf("[%s] No live game available: %v", server.Name, err)
-			// Fall back to server ttyrec playback
-			if ttyErr := v.playTTYRec(); ttyErr != nil {
-				log.Printf("[%s] ttyrec fallback failed: %v", server.Name, ttyErr)
-				failCount++
-				v.rotateServer()
+			isConnectErr := strings.Contains(err.Error(), "connect to ")
 
-				// After cycling through all servers, fall back to bundled recording
-				if failCount >= len(v.servers) {
-					log.Println("All servers failed, falling back to bundled recording")
-					if bundledErr := v.playBundledTTYRec(); bundledErr != nil {
-						log.Printf("Bundled ttyrec failed: %v", bundledErr)
-					}
-					// Exponential backoff: 5s, 10s, 20s, 40s, capped at 60s
-					delay := time.Duration(5<<min(failCount-len(v.servers), 3)) * time.Second
-					if delay > 60*time.Second {
-						delay = 60 * time.Second
-					}
-					fyne.Do(func() {
-						v.status.SetText(fmt.Sprintf("No servers available — retrying in %s...", delay.Round(time.Second)))
-					})
-					time.Sleep(delay)
+			// Only try server ttyrec if we actually connected (no games, not network down)
+			if !isConnectErr {
+				if ttyErr := v.playTTYRec(); ttyErr == nil {
+					v.pickServer(false)
+					continue
 				} else {
-					fyne.Do(func() {
-						v.status.SetText(fmt.Sprintf("No games on %s — trying next server...", server.Name))
-					})
-					time.Sleep(3 * time.Second)
+					log.Printf("[%s] ttyrec fallback failed: %v", server.Name, ttyErr)
 				}
-			} else {
-				failCount = 0 // ttyrec playback succeeded
 			}
+
+			v.pickServer(true)
+			time.Sleep(2 * time.Second)
 			continue
 		}
-		failCount = 0 // live game succeeded
 		log.Printf("[%s] Switching game: %s", server.Name, reason)
-		// Rotate server on each game switch for variety
-		v.rotateServer()
+		v.pickServer(false)
 		fyne.Do(func() {
 			v.status.SetText(fmt.Sprintf("Switching game (%s)...", reason))
 		})

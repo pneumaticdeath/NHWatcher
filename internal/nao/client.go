@@ -76,7 +76,7 @@ func (c *Client) Connect(cols, rows int) (io.WriteCloser, io.Reader, error) {
 			ssh.Password(""),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         10 * time.Second,
+		Timeout:         5 * time.Second,
 	}
 
 	var err error
