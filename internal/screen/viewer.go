@@ -351,6 +351,7 @@ func (v *Viewer) Start() error {
 		go v.captureFrames()
 	}
 
+	failCount := 0
 	for {
 		select {
 		case <-v.quit:
@@ -366,18 +367,39 @@ func (v *Viewer) Start() error {
 		reason, err := v.watchOne()
 		if err != nil {
 			log.Printf("[%s] No live game available: %v", server.Name, err)
-			// Fall back to ttyrec playback
+			// Fall back to server ttyrec playback
 			if ttyErr := v.playTTYRec(); ttyErr != nil {
 				log.Printf("[%s] ttyrec fallback failed: %v", server.Name, ttyErr)
-				// Rotate to next server before retrying
+				failCount++
 				v.rotateServer()
-				fyne.Do(func() {
-					v.status.SetText(fmt.Sprintf("No games on %s — trying next server...", server.Name))
-				})
-				time.Sleep(3 * time.Second)
+
+				// After cycling through all servers, fall back to bundled recording
+				if failCount >= len(v.servers) {
+					log.Println("All servers failed, falling back to bundled recording")
+					if bundledErr := v.playBundledTTYRec(); bundledErr != nil {
+						log.Printf("Bundled ttyrec failed: %v", bundledErr)
+					}
+					// Exponential backoff: 5s, 10s, 20s, 40s, capped at 60s
+					delay := time.Duration(5<<min(failCount-len(v.servers), 3)) * time.Second
+					if delay > 60*time.Second {
+						delay = 60 * time.Second
+					}
+					fyne.Do(func() {
+						v.status.SetText(fmt.Sprintf("No servers available — retrying in %s...", delay.Round(time.Second)))
+					})
+					time.Sleep(delay)
+				} else {
+					fyne.Do(func() {
+						v.status.SetText(fmt.Sprintf("No games on %s — trying next server...", server.Name))
+					})
+					time.Sleep(3 * time.Second)
+				}
+			} else {
+				failCount = 0 // ttyrec playback succeeded
 			}
 			continue
 		}
+		failCount = 0 // live game succeeded
 		log.Printf("[%s] Switching game: %s", server.Name, reason)
 		// Rotate server on each game switch for variety
 		v.rotateServer()
@@ -535,6 +557,53 @@ func (v *Viewer) playTTYRec() error {
 	select {
 	case <-done:
 		log.Printf("ttyrec playback finished: %s", label)
+		return nil
+	case <-v.switchCh:
+		player.Stop()
+		return nil
+	case <-v.quit:
+		player.Stop()
+		return nil
+	}
+}
+
+// playBundledTTYRec plays the embedded ttyrec recording as a last-resort
+// fallback when no servers are reachable.
+func (v *Viewer) playBundledTTYRec() error {
+	frames, err := nao.ParseBundledTTYRec()
+	if err != nil {
+		return fmt.Errorf("parse bundled ttyrec: %w", err)
+	}
+	log.Printf("Playing bundled ttyrec (%d frames)", len(frames))
+
+	v.term = terminal.New()
+	layoutDone := make(chan struct{})
+	fyne.Do(func() {
+		v.container.Objects[0] = v.term
+		v.container.Refresh()
+		v.status.SetText("Offline — playing bundled recording")
+		close(layoutDone)
+	})
+	<-layoutDone
+	time.Sleep(200 * time.Millisecond)
+
+	player := ttyrec.NewPlayer(frames)
+	defer player.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("FyneTerm panic (recovered): %v", r)
+			}
+			close(done)
+		}()
+		v.term.RunWithConnection(nopWriteCloser{}, player)
+	}()
+
+	select {
+	case <-done:
+		log.Println("Bundled ttyrec playback finished")
 		return nil
 	case <-v.switchCh:
 		player.Stop()

@@ -27,10 +27,12 @@ all: saver
 
 # Build the standalone Go app (native arch)
 app:
+	cp screensaver/Resources/bundled.ttyrec internal/nao/bundled.ttyrec
 	go build -o build/nhwatcher ./cmd/nhwatcher/
 
 # Build universal (arm64 + amd64) Go binary
 app-universal:
+	cp screensaver/Resources/bundled.ttyrec internal/nao/bundled.ttyrec
 	CGO_ENABLED=1 GOARCH=arm64 go build -o build/nhwatcher-arm64 ./cmd/nhwatcher/
 	CGO_ENABLED=1 GOARCH=amd64 go build -o build/nhwatcher-amd64 ./cmd/nhwatcher/
 	lipo -create -output build/nhwatcher build/nhwatcher-arm64 build/nhwatcher-amd64
@@ -59,6 +61,7 @@ _bundle:
 	cp build/nhwatcher $(SAVER_CONTENTS)/Resources/nhwatcher
 	cp icon.png $(SAVER_CONTENTS)/Resources/icon.png
 	cp preview.png $(SAVER_CONTENTS)/Resources/preview.png
+	cp screensaver/Resources/bundled.ttyrec $(SAVER_CONTENTS)/Resources/bundled.ttyrec
 	tiffutil -cathidpicheck thumbnail.png thumbnail@2x.png -out $(SAVER_CONTENTS)/Resources/thumbnail.tiff
 	@echo "Built $(SAVER_DIR)"
 
