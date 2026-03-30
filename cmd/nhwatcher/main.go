@@ -41,19 +41,13 @@ func main() {
 	a := app.New()
 	a.Settings().SetTheme(&screen.DarkTermTheme{})
 
-	var w fyne.Window
-	if *screensaverMode {
-		// Splash window: borderless, sized to screen. Not visible to the user
-		// (runs inside the legacyScreenSaver sandbox); the ObjC wrapper reads
-		// captured frames from our stdout pipe instead.
-		drv := a.Driver().(desktop.Driver)
-		w = drv.CreateSplashWindow()
-		sw, sh := screen.ScreenSize()
-		w.Resize(fyne.NewSize(float32(sw), float32(sh)))
-	} else {
-		w = a.NewWindow("NH Watcher")
-		w.SetFullScreen(true)
-	}
+	// Use a borderless splash window sized to the screen rather than
+	// native fullscreen (SetFullScreen), which can trigger macOS display
+	// resolution changes that resize other windows like iTerm.
+	drv := a.Driver().(desktop.Driver)
+	w := drv.CreateSplashWindow()
+	sw, sh := screen.ScreenSize()
+	w.Resize(fyne.NewSize(float32(sw), float32(sh)))
 
 	// Select servers
 	servers := nao.AllServers
