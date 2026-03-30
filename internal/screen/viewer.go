@@ -20,7 +20,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	terminal "github.com/fyne-io/terminal"
 	"github.com/pneumaticdeath/NH_Watcher/internal/nao"
@@ -98,6 +97,8 @@ type Viewer struct {
 	container       *fyne.Container
 	cols            int
 	rows            int
+	baseCellW       float64 // unscaled monospace cell dimensions
+	baseCellH       float64
 	lastPlayer      string
 	quit            chan struct{}
 	switchCh        chan struct{}
@@ -191,6 +192,9 @@ func NewViewer(w fyne.Window, servers []nao.ServerConfig, screensaverMode bool) 
 	// Randomize initial server order
 	startIdx := rand.IntN(len(servers))
 
+	// Measure cell size before any font scaling
+	cellW, cellH := measureCellSize()
+
 	v := &Viewer{
 		window:          w,
 		servers:         servers,
@@ -199,6 +203,8 @@ func NewViewer(w fyne.Window, servers []nao.ServerConfig, screensaverMode bool) 
 		serverCooldown:  make([]time.Time, len(servers)),
 		term:            t,
 		status:          status,
+		baseCellW:       cellW,
+		baseCellH:       cellH,
 		quit:            make(chan struct{}),
 		switchCh:        make(chan struct{}, 1),
 		screensaverMode: screensaverMode,
@@ -283,17 +289,19 @@ func (v *Viewer) Content() fyne.CanvasObject {
 	return v.container
 }
 
-// terminalSize computes cols and rows that fit the current window.
-func (v *Viewer) terminalSize() (int, int) {
-	winSize := v.window.Canvas().Size()
-
-	// Measure monospace cell size (same approach as FyneTerm)
+// measureCellSize measures the monospace cell size at the current theme.
+// Must be called before any font scaling is applied.
+func measureCellSize() (float64, float64) {
 	cell := canvas.NewText("M", color.White)
 	cell.TextStyle.Monospace = true
-	scale := v.term.Theme().Size(theme.SizeNameText) / theme.TextSize()
 	min := cell.MinSize()
-	cellW := float64(min.Width * scale)
-	cellH := float64(min.Height * scale)
+	return float64(min.Width), float64(min.Height)
+}
+
+// terminalSize computes cols and rows that fit the current window at default font.
+func (v *Viewer) terminalSize() (int, int) {
+	winSize := v.window.Canvas().Size()
+	cellW, cellH := v.baseCellW, v.baseCellH
 
 	cols := int(math.Floor(float64(winSize.Width) / cellW))
 	rows := int(math.Floor(float64(winSize.Height) / cellH))
@@ -304,6 +312,47 @@ func (v *Viewer) terminalSize() (int, int) {
 		rows = 24
 	}
 	return cols, rows
+}
+
+// setupTerminal creates a new terminal widget with the font scaled so
+// the game's dimensions fill the screen. Returns a channel that is
+// closed once the layout is complete.
+func (v *Viewer) setupTerminal(gameCols, gameRows int) <-chan struct{} {
+	if gameCols < 80 {
+		gameCols = 80
+	}
+	if gameRows < 24 {
+		gameRows = 24
+	}
+
+	winSize := v.window.Canvas().Size()
+	cellW, cellH := v.baseCellW, v.baseCellH
+
+	// Calculate scale factor so the game fills the window.
+	// Use the smaller of width/height scales so everything fits.
+	scaleX := float64(winSize.Width) / (cellW * float64(gameCols))
+	scaleY := float64(winSize.Height) / (cellH * float64(gameRows))
+	scale := math.Min(scaleX, scaleY)
+	if scale < 1 {
+		scale = 1
+	}
+
+	log.Printf("Game size: %dx%d, window: %.0fx%.0f, font scale: %.2f",
+		gameCols, gameRows, winSize.Width, winSize.Height, scale)
+
+	v.term = terminal.New()
+
+	// Wrap the terminal in a per-widget theme override so the font
+	// scaling only affects this terminal, not the entire application.
+	themed := container.NewThemeOverride(v.term, &DarkTermTheme{TextScale: float32(scale)})
+
+	layoutDone := make(chan struct{})
+	fyne.Do(func() {
+		v.container.Objects[0] = themed
+		v.container.Refresh()
+		close(layoutDone)
+	})
+	return layoutDone
 }
 
 // getNSWindow returns the native NSWindow handle, or 0 if not yet available.
@@ -477,20 +526,6 @@ func (v *Viewer) Start() error {
 // watchOne connects to NAO, watches a single game, and returns when
 // the game should be switched (idle timeout, game over, or EOF).
 func (v *Viewer) watchOne() (nao.SwitchReason, error) {
-	// Fresh terminal widget for each game. We must wait for Fyne to
-	// lay out the widget before calling RunWithConnection, otherwise
-	// FyneTerm's internal row/col counts won't match the grid size.
-	v.term = terminal.New()
-	layoutDone := make(chan struct{})
-	fyne.Do(func() {
-		v.container.Objects[0] = v.term
-		v.container.Refresh()
-		close(layoutDone)
-	})
-	<-layoutDone
-	// Allow an extra layout cycle for the terminal to be fully sized
-	time.Sleep(200 * time.Millisecond)
-
 	client := v.currentClient()
 	server := v.servers[v.serverIdx]
 	client.Close()
@@ -504,16 +539,20 @@ func (v *Viewer) watchOne() (nao.SwitchReason, error) {
 	})
 	log.Printf("Connected to %s", server.Name)
 
-	player, err := client.WatchRandomGame(v.lastPlayer)
+	choice, err := client.WatchRandomGame(v.lastPlayer)
 	if err != nil {
 		return 0, fmt.Errorf("select game: %w", err)
 	}
-	v.lastPlayer = player
+	v.lastPlayer = choice.Player
+
+	// Set up a scaled, centered terminal matching the game's dimensions
+	<-v.setupTerminal(choice.Cols, choice.Rows)
+	time.Sleep(200 * time.Millisecond)
 
 	fyne.Do(func() {
-		v.status.SetText(fmt.Sprintf("Watching %s on %s", player, server.Name))
+		v.status.SetText(fmt.Sprintf("Watching %s on %s", choice.Player, server.Name))
 	})
-	log.Printf("Watching player: %s on %s", player, server.Name)
+	log.Printf("Watching player: %s on %s", choice.Player, server.Name)
 
 	// Wrap stdout with the monitor for idle/game-over detection
 	monitor := nao.NewMonitoredReader(stdout, idleTimeout)
@@ -590,17 +629,12 @@ func (v *Viewer) playTTYRec() error {
 	}
 	log.Printf("Playing ttyrec: %s (%d frames)", label, len(frames))
 
-	// Fresh terminal widget — wait for layout before starting playback
-	v.term = terminal.New()
-	layoutDone := make(chan struct{})
-	fyne.Do(func() {
-		v.container.Objects[0] = v.term
-		v.container.Refresh()
-		v.status.SetText(fmt.Sprintf("Replay: %s", label))
-		close(layoutDone)
-	})
-	<-layoutDone
+	// ttyrec files don't carry terminal dimensions; assume standard 80x24
+	<-v.setupTerminal(80, 24)
 	time.Sleep(200 * time.Millisecond)
+	fyne.Do(func() {
+		v.status.SetText(fmt.Sprintf("Replay: %s", label))
+	})
 
 	player := ttyrec.NewPlayer(frames)
 	defer player.Stop()
@@ -639,16 +673,11 @@ func (v *Viewer) playBundledTTYRec() error {
 	}
 	log.Printf("Playing bundled ttyrec (%d frames)", len(frames))
 
-	v.term = terminal.New()
-	layoutDone := make(chan struct{})
-	fyne.Do(func() {
-		v.container.Objects[0] = v.term
-		v.container.Refresh()
-		v.status.SetText("Offline — playing bundled recording")
-		close(layoutDone)
-	})
-	<-layoutDone
+	<-v.setupTerminal(80, 24)
 	time.Sleep(200 * time.Millisecond)
+	fyne.Do(func() {
+		v.status.SetText("Offline — playing bundled recording")
+	})
 
 	player := ttyrec.NewPlayer(frames)
 	defer player.Stop()

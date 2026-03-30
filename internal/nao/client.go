@@ -143,28 +143,35 @@ func (c *Client) SendKey(key string) error {
 // WatchRandomGame navigates the dgamelaunch menus to spectate a random
 // non-idle game. The avoid parameter specifies a player name to skip
 // (e.g. the previously watched player). Pass "" to skip nobody.
-func (c *Client) WatchRandomGame(avoid string) (string, error) {
+// GameChoice contains the selected game's player name and terminal dimensions.
+type GameChoice struct {
+	Player string
+	Cols   int
+	Rows   int
+}
+
+func (c *Client) WatchRandomGame(avoid string) (GameChoice, error) {
 	// Wait for the initial dgamelaunch menu to appear
 	if err := c.readUntilPrompt(); err != nil {
-		return "", fmt.Errorf("waiting for main menu: %w", err)
+		return GameChoice{}, fmt.Errorf("waiting for main menu: %w", err)
 	}
 
 	// Send 'w' to enter watch mode
 	if err := c.SendKey("w"); err != nil {
-		return "", fmt.Errorf("send watch key: %w", err)
+		return GameChoice{}, fmt.Errorf("send watch key: %w", err)
 	}
 
 	// Read the watch menu and parse the game list
 	menuOutput, err := c.readUntilWatchPrompt()
 	if err != nil {
-		return "", fmt.Errorf("reading watch menu: %w", err)
+		return GameChoice{}, fmt.Errorf("reading watch menu: %w", err)
 	}
 
 	games := ParseGameList(menuOutput)
 	if len(games) == 0 {
 		clean := stripANSI(menuOutput)
 		log.Printf("Watch menu raw output (%d bytes):\n%s", len(menuOutput), clean)
-		return "", fmt.Errorf("no games in progress")
+		return GameChoice{}, fmt.Errorf("no games in progress")
 	}
 
 	// Filter to games that fit our PTY and are not idle,
@@ -208,10 +215,10 @@ func (c *Client) WatchRandomGame(avoid string) (string, error) {
 
 	// Send the selector key to start watching
 	if err := c.SendKey(chosen.Selector); err != nil {
-		return "", fmt.Errorf("send selector: %w", err)
+		return GameChoice{}, fmt.Errorf("send selector: %w", err)
 	}
 
-	return chosen.Player, nil
+	return GameChoice{Player: chosen.Player, Cols: chosen.Cols, Rows: chosen.Rows}, nil
 }
 
 // readUntilPrompt reads from stdout until we see the dgamelaunch main menu prompt.

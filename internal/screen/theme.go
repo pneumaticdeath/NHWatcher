@@ -8,8 +8,11 @@ import (
 )
 
 // DarkTermTheme is a dark theme with a black background and light text,
-// suitable for terminal/screensaver display.
-type DarkTermTheme struct{}
+// suitable for terminal/screensaver display. The TextScale field controls
+// the monospace text size used by the terminal widget.
+type DarkTermTheme struct {
+	TextScale float32 // multiplier for text size (0 or 1 = default)
+}
 
 func (d *DarkTermTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
@@ -31,5 +34,8 @@ func (d *DarkTermTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 }
 
 func (d *DarkTermTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText && d.TextScale > 0 && d.TextScale != 1 {
+		return theme.DefaultTheme().Size(name) * d.TextScale
+	}
 	return theme.DefaultTheme().Size(name)
 }
