@@ -6,17 +6,24 @@ It connects via SSH to a dgamelaunch server, picks a random active game that fit
 
 ![Screenshot](images/screenshot.png)
 
-## Installation
+## Installation as a screensaver
 
-### As a screensaver
+### Via Homebrew:
+
+```bash
+brew tap pneumaticdeath/nhwatcher
+brew install --cask nhwatcher
+```
+
+### From source
 
 ```bash
 make install
 ```
 
-Then open **System Settings > Screen Saver** and select **NH Watcher**.
+Then open **System Settings > Wallpaper > Screen Saver** and select **NH Watcher**.
 
-### As a standalone app
+## Installation as a standalone app
 
 ```bash
 make run
