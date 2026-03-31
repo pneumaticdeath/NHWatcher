@@ -11,7 +11,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/pneumaticdeath/NH_Watcher/internal/nao"
 	"github.com/pneumaticdeath/NH_Watcher/internal/screen"
 )
@@ -43,10 +42,13 @@ func main() {
 
 	var w fyne.Window
 	if *screensaverMode {
-		drv := a.Driver().(desktop.Driver)
-		w = drv.CreateSplashWindow()
-		sw, sh := screen.ScreenSize()
-		w.Resize(fyne.NewSize(float32(sw), float32(sh)))
+		// Regular window at a fixed size — large enough for good quality
+		// Canvas.Capture() frames but not full-screen-sized, which can
+		// trigger macOS display resolution changes. The window is hidden
+		// immediately (alpha=0, below desktop); the ObjC wrapper renders
+		// the captured frames in the actual screensaver view.
+		w = a.NewWindow("NH Watcher")
+		w.Resize(fyne.NewSize(1920, 1080))
 	} else {
 		w = a.NewWindow("NH Watcher")
 		w.SetFullScreen(true)
