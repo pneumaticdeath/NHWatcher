@@ -256,11 +256,21 @@ func (c *Client) readUntilCapture(marker string) (string, error) {
 	}
 }
 
-// Close shuts down the current SSH connection. The client can be
-// reconnected by calling Connect again.
+// Close sends 'q' to cleanly exit dgamelaunch (so the server drops
+// the watcher count), then shuts down the SSH connection. The client
+// can be reconnected by calling Connect again.
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Tell dgamelaunch to stop watching before we hang up.
+	if c.stdin != nil {
+		c.stdin.Write([]byte("q"))
+		// Give the server a moment to process the quit before
+		// we tear down the connection.
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	if c.session != nil {
 		c.session.Close()
 		c.session = nil
