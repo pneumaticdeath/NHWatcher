@@ -21,7 +21,7 @@ NOTARIZE_TEAM_ID ?=
 NOTARIZE_PASSWORD ?=
 
 .PHONY: all app app-universal saver saver-universal install uninstall clean \
-        sign notarize release test-saver run
+        sign sign-only notarize notarize-only release test-saver run
 
 all: saver
 
@@ -65,8 +65,13 @@ _bundle:
 	tiffutil -cathidpicheck thumbnail.png thumbnail@2x.png -out $(SAVER_CONTENTS)/Resources/thumbnail.tiff
 	@echo "Built $(SAVER_DIR)"
 
-# Sign the .saver bundle and its embedded binary
+# Sign the .saver bundle and its embedded binary.
+# When called from CI (where build steps are separate), invoke without
+# the saver-universal prerequisite: make saver-universal && make sign-only.
 sign: saver-universal
+	$(MAKE) sign-only
+
+sign-only:
 ifndef DEVELOPER_ID
 	$(error DEVELOPER_ID is not set. Export it or pass it to make.)
 endif
@@ -77,9 +82,12 @@ endif
 	codesign --verify --verbose $(SAVER_DIR)
 	@echo "Signed $(SAVER_DIR)"
 
-# Notarize the signed .saver bundle
-# Uses keychain profile locally, or explicit credentials in CI
+# Notarize the signed .saver bundle.
+# notarize-only skips the rebuild; use from CI after sign-only.
 notarize: sign
+	$(MAKE) notarize-only
+
+notarize-only:
 	cd build && zip -r $(SAVER_NAME)-$(VERSION).saver.zip $(SAVER_NAME).saver
 ifdef NOTARIZE_APPLE_ID
 	xcrun notarytool submit $(RELEASE_ZIP) \

@@ -50,20 +50,20 @@ jobs:
       - name: Build
         run: make saver-universal
 
-      # Sign the bundle
+      # Sign the bundle (sign-only to avoid rebuilding)
       - name: Sign
         env:
           DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_IDENTITY }}
-        run: make sign
+        run: make sign-only
 
-      # Notarize
+      # Notarize (notarize-only to avoid rebuilding and re-signing)
       - name: Notarize
         env:
           DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_IDENTITY }}
           NOTARIZE_APPLE_ID: ${{ secrets.NOTARIZE_APPLE_ID }}
           NOTARIZE_TEAM_ID: ${{ secrets.NOTARIZE_TEAM_ID }}
           NOTARIZE_PASSWORD: ${{ secrets.NOTARIZE_PASSWORD }}
-        run: make notarize
+        run: make notarize-only
 
       # Compute SHA256 for the Homebrew cask
       - name: Compute SHA256
