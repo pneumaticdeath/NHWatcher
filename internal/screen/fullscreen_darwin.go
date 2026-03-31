@@ -22,6 +22,7 @@ static void hideNSWindow(void *nswindow) {
     [win setAlphaValue:0.0];
     [win setLevel:kCGDesktopWindowLevelKey - 1];
 }
+
 */
 import "C"
 import "unsafe"
@@ -39,3 +40,4 @@ func ScreenSize() (int, int) {
 func HideNSWindow(nswindow uintptr) {
 	C.hideNSWindow(unsafe.Pointer(nswindow))
 }
+
