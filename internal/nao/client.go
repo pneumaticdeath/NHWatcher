@@ -23,6 +23,7 @@ const selectorChars = "abcdefghijklmnoprstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ"
 type Game struct {
 	Selector string // e.g. "a", "b", ...
 	Player   string
+	Variant  string // e.g. "nh367", "nndnh0118", "nh4"
 	Cols     int
 	Rows     int
 	Idle     string // blank means actively playing
@@ -143,11 +144,12 @@ func (c *Client) SendKey(key string) error {
 // WatchRandomGame navigates the dgamelaunch menus to spectate a random
 // non-idle game. The avoid parameter specifies a player name to skip
 // (e.g. the previously watched player). Pass "" to skip nobody.
-// GameChoice contains the selected game's player name and terminal dimensions.
+// GameChoice contains the selected game's player name, variant, and terminal dimensions.
 type GameChoice struct {
-	Player string
-	Cols   int
-	Rows   int
+	Player  string
+	Variant string
+	Cols    int
+	Rows    int
 }
 
 func (c *Client) WatchRandomGame(avoid string) (GameChoice, error) {
@@ -218,7 +220,7 @@ func (c *Client) WatchRandomGame(avoid string) (GameChoice, error) {
 		return GameChoice{}, fmt.Errorf("send selector: %w", err)
 	}
 
-	return GameChoice{Player: chosen.Player, Cols: chosen.Cols, Rows: chosen.Rows}, nil
+	return GameChoice{Player: chosen.Player, Variant: chosen.Variant, Cols: chosen.Cols, Rows: chosen.Rows}, nil
 }
 
 // readUntilPrompt reads from stdout until we see the dgamelaunch main menu prompt.
@@ -310,16 +312,17 @@ func ParseGameList(output string) []Game {
 	var games []Game
 
 	// Match games with numeric dimensions: 139x 29
-	// Captures: 1=selector, 2=player, 3=cols, 4=rows, 5=idle time (may be empty)
-	sizedRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
+	// Captures: 1=selector, 2=player, 3=variant, 4=cols, 5=rows, 6=idle time (may be empty)
+	sizedRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+(\S+)\s+(\d+)x\s*(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
 
 	for _, m := range sizedRe.FindAllStringSubmatch(clean, -1) {
-		cols, _ := strconv.Atoi(m[3])
-		rows, _ := strconv.Atoi(m[4])
-		idle := strings.TrimSpace(m[5])
+		cols, _ := strconv.Atoi(m[4])
+		rows, _ := strconv.Atoi(m[5])
+		idle := strings.TrimSpace(m[6])
 		games = append(games, Game{
 			Selector: m[1],
 			Player:   m[2],
+			Variant:  m[3],
 			Cols:     cols,
 			Rows:     rows,
 			Idle:     idle,
@@ -327,14 +330,15 @@ func ParseGameList(output string) []Game {
 	}
 
 	// Match games with N/A size (e.g. nh4 on hardfought)
-	// Captures: 1=selector, 2=player, 3=idle time (may be empty)
-	naRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+\S+\s+N/A\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
+	// Captures: 1=selector, 2=player, 3=variant, 4=idle time (may be empty)
+	naRe := regexp.MustCompile(`([a-pr-zA-PR-Z])\)\s+(\S+)\s+(\S+)\s+N/A\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*((?:\d+[hms]\s*(?:\d+[hms]\s*)?)?)\s*\d`)
 
 	for _, m := range naRe.FindAllStringSubmatch(clean, -1) {
-		idle := strings.TrimSpace(m[3])
+		idle := strings.TrimSpace(m[4])
 		games = append(games, Game{
 			Selector: m[1],
 			Player:   m[2],
+			Variant:  m[3],
 			Cols:     0,
 			Rows:     0,
 			Idle:     idle,

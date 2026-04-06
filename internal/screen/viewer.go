@@ -68,19 +68,19 @@ func (w *mouseExitWidget) MouseMoved(ev *desktop.MouseEvent) {
 	}
 }
 
-func (w *mouseExitWidget) MouseIn(ev *desktop.MouseEvent)  {}
-func (w *mouseExitWidget) MouseOut()                        {}
+func (w *mouseExitWidget) MouseIn(ev *desktop.MouseEvent) {}
+func (w *mouseExitWidget) MouseOut()                      {}
 
 // Ensure mouseExitWidget implements desktop.Hoverable
 var _ desktop.Hoverable = (*mouseExitWidget)(nil)
 
 type mouseExitRenderer struct{}
 
-func (r *mouseExitRenderer) Layout(size fyne.Size) {}
-func (r *mouseExitRenderer) MinSize() fyne.Size    { return fyne.NewSize(0, 0) }
-func (r *mouseExitRenderer) Refresh()              {}
+func (r *mouseExitRenderer) Layout(size fyne.Size)        {}
+func (r *mouseExitRenderer) MinSize() fyne.Size           { return fyne.NewSize(0, 0) }
+func (r *mouseExitRenderer) Refresh()                     {}
 func (r *mouseExitRenderer) Objects() []fyne.CanvasObject { return nil }
-func (r *mouseExitRenderer) Destroy()              {}
+func (r *mouseExitRenderer) Destroy()                     {}
 
 const idleTimeout = 2 * time.Minute
 
@@ -89,7 +89,7 @@ type Viewer struct {
 	window          fyne.Window
 	servers         []nao.ServerConfig
 	clients         []*nao.Client
-	serverIdx       int // current server index
+	serverIdx       int         // current server index
 	serverCooldown  []time.Time // per-server: don't retry before this time
 	successCount    int         // consecutive successes on current server
 	term            *terminal.Terminal
@@ -550,9 +550,9 @@ func (v *Viewer) watchOne() (nao.SwitchReason, error) {
 	time.Sleep(200 * time.Millisecond)
 
 	fyne.Do(func() {
-		v.status.SetText(fmt.Sprintf("Watching %s on %s", choice.Player, server.Name))
+		v.status.SetText(fmt.Sprintf("Watching %s play %s on %s", choice.Player, choice.Variant, server.Name))
 	})
-	log.Printf("Watching player: %s on %s", choice.Player, server.Name)
+	log.Printf("Watching %s play %s on %s", choice.Player, choice.Variant, server.Name)
 
 	// Wrap stdout with the monitor for idle/game-over detection
 	monitor := nao.NewMonitoredReader(stdout, idleTimeout)

@@ -40,4 +40,3 @@ func ScreenSize() (int, int) {
 func HideNSWindow(nswindow uintptr) {
 	C.hideNSWindow(unsafe.Pointer(nswindow))
 }
-

@@ -19,18 +19,19 @@ func TestParseGameList(t *testing.T) {
 
 	// Check a few specific entries
 	checks := map[string]struct {
-		player string
-		cols   int
-		rows   int
-		idle   bool
-		fits   bool // fits in 80x24
+		player  string
+		variant string
+		cols    int
+		rows    int
+		idle    bool
+		fits    bool // fits in 80x24
 	}{
-		"a": {"Badger004", 182, 35, true, false},  // 12m 24s, too big
-		"b": {"BatBeefs", 80, 24, true, true},     // 5m 19s, fits
-		"c": {"BCKit", 130, 26, false, false},     // active, too big
-		"g": {"h2g2", 132, 43, false, false},      // active, too big
-		"j": {"Lanfaedhe", 80, 24, false, true},   // active, fits!
-		"m": {"needler", 112, 26, false, false},    // active, too big
+		"a": {"Badger004", "nh367", 182, 35, true, false}, // 12m 24s, too big
+		"b": {"BatBeefs", "nh367", 80, 24, true, true},    // 5m 19s, fits
+		"c": {"BCKit", "nh367", 130, 26, false, false},    // active, too big
+		"g": {"h2g2", "nh367", 132, 43, false, false},     // active, too big
+		"j": {"Lanfaedhe", "nh367", 80, 24, false, true},  // active, fits!
+		"m": {"needler", "nh367", 112, 26, false, false},  // active, too big
 	}
 	gameMap := make(map[string]Game)
 	for _, g := range games {
@@ -44,6 +45,9 @@ func TestParseGameList(t *testing.T) {
 		}
 		if g.Player != want.player {
 			t.Errorf("selector %s: player = %q, want %q", sel, g.Player, want.player)
+		}
+		if g.Variant != want.variant {
+			t.Errorf("selector %s: variant = %q, want %q", sel, g.Variant, want.variant)
 		}
 		if g.Cols != want.cols || g.Rows != want.rows {
 			t.Errorf("selector %s: size = %dx%d, want %dx%d", sel, g.Cols, g.Rows, want.cols, want.rows)
@@ -74,17 +78,18 @@ func TestParseGameListHardfought(t *testing.T) {
 	}
 
 	checks := map[string]struct {
-		player string
-		cols   int
-		rows   int
-		idle   bool
+		player  string
+		variant string
+		cols    int
+		rows    int
+		idle    bool
 	}{
-		"a": {"Enigmic", 139, 29, false},
-		"b": {"griffs", 162, 47, false},
-		"c": {"somebody", 80, 25, true},   // 2m 30s
-		"d": {"tau", 150, 47, false},
-		"e": {"gruefood", 80, 25, true},   // 1m 25s
-		"f": {"Pullings", 0, 0, true},     // N/A size, 17m 47s idle
+		"a": {"Enigmic", "nndnh0118", 139, 29, false},
+		"b": {"griffs", "nh370.132", 162, 47, false},
+		"c": {"somebody", "evil092", 80, 25, true}, // 2m 30s
+		"d": {"tau", "evil092", 150, 47, false},
+		"e": {"gruefood", "hackem132", 80, 25, true}, // 1m 25s
+		"f": {"Pullings", "nh4", 0, 0, true},         // N/A size, 17m 47s idle
 	}
 	gameMap := make(map[string]Game)
 	for _, g := range games {
@@ -98,6 +103,9 @@ func TestParseGameListHardfought(t *testing.T) {
 		}
 		if g.Player != want.player {
 			t.Errorf("selector %s: player = %q, want %q", sel, g.Player, want.player)
+		}
+		if g.Variant != want.variant {
+			t.Errorf("selector %s: variant = %q, want %q", sel, g.Variant, want.variant)
 		}
 		if g.Cols != want.cols || g.Rows != want.rows {
 			t.Errorf("selector %s: size = %dx%d, want %dx%d", sel, g.Cols, g.Rows, want.cols, want.rows)

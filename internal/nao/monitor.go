@@ -35,8 +35,8 @@ func (r SwitchReason) String() string {
 // MonitoredReader wraps an io.Reader to detect inactivity and game exit.
 // It passes all data through to the terminal while monitoring it.
 type MonitoredReader struct {
-	inner   io.Reader
-	mu      sync.Mutex
+	inner    io.Reader
+	mu       sync.Mutex
 	lastData time.Time
 	timeout  time.Duration
 	switchCh chan SwitchReason

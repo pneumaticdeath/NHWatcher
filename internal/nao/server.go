@@ -6,17 +6,17 @@ type ServerConfig struct {
 	Key        string // short key for CLI, e.g. "nao", "hdf-us"
 	SSHHost    string // host:port
 	SSHUser    string
-	TtyrecURL  string // base URL for ttyrec directory listings, empty to skip
+	TtyrecURL  string                     // base URL for ttyrec directory listings, empty to skip
 	TtyrecPath func(player string) string // returns URL path from base to ttyrec dir
 }
 
 // Predefined servers.
 var (
 	ServerNAO = ServerConfig{
-		Name:    "nethack.alt.org",
-		Key:     "nao",
-		SSHHost: "nethack.alt.org:22",
-		SSHUser: "nethack",
+		Name:      "nethack.alt.org",
+		Key:       "nao",
+		SSHHost:   "nethack.alt.org:22",
+		SSHUser:   "nethack",
 		TtyrecURL: "https://alt.org/nethack/userdata",
 		TtyrecPath: func(player string) string {
 			return "/" + string(player[0]) + "/" + player + "/ttyrec/"
@@ -74,10 +74,10 @@ var (
 // Unknown keys are silently ignored.
 func ServersByKey(keys []string) []ServerConfig {
 	all := map[string]ServerConfig{
-		ServerNAO.Key:            ServerNAO,
-		ServerHardfoughtUS.Key:   ServerHardfoughtUS,
-		ServerHardfoughtEU.Key:   ServerHardfoughtEU,
-		ServerHardfoughtAU.Key:   ServerHardfoughtAU,
+		ServerNAO.Key:          ServerNAO,
+		ServerHardfoughtUS.Key: ServerHardfoughtUS,
+		ServerHardfoughtEU.Key: ServerHardfoughtEU,
+		ServerHardfoughtAU.Key: ServerHardfoughtAU,
 	}
 	var result []ServerConfig
 	for _, k := range keys {
