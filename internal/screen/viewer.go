@@ -629,8 +629,10 @@ func (v *Viewer) playTTYRec() error {
 	}
 	log.Printf("Playing ttyrec: %s (%d frames)", label, len(frames))
 
-	// ttyrec files don't carry terminal dimensions; assume standard 80x24
-	<-v.setupTerminal(80, 24)
+	// Detect terminal dimensions from cursor positioning in the recording
+	cols, rows := ttyrec.DetectSize(frames)
+	log.Printf("Detected ttyrec size: %dx%d", cols, rows)
+	<-v.setupTerminal(cols, rows)
 	time.Sleep(200 * time.Millisecond)
 	fyne.Do(func() {
 		v.status.SetText(fmt.Sprintf("Replay: %s", label))
@@ -673,7 +675,9 @@ func (v *Viewer) playBundledTTYRec() error {
 	}
 	log.Printf("Playing bundled ttyrec (%d frames)", len(frames))
 
-	<-v.setupTerminal(80, 24)
+	cols, rows := ttyrec.DetectSize(frames)
+	log.Printf("Detected bundled ttyrec size: %dx%d", cols, rows)
+	<-v.setupTerminal(cols, rows)
 	time.Sleep(200 * time.Millisecond)
 	fyne.Do(func() {
 		v.status.SetText("Offline — playing bundled recording")
