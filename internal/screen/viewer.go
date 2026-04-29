@@ -573,24 +573,6 @@ func (v *Viewer) watchOne() (nao.SwitchReason, error) {
 		v.term.RunWithConnection(stdin, monitor)
 	}()
 
-	// FyneTerm skips Refresh() when there's leftover data in its read
-	// buffer, which causes partial-update artifacts with curses games.
-	// Periodically force a refresh to compensate.
-	stopRefresh := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(200 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				fyne.Do(func() { v.term.Refresh() })
-			case <-stopRefresh:
-				return
-			}
-		}
-	}()
-	defer close(stopRefresh)
-
 	// Wait for either a switch signal, the terminal finishing, user switch, or quit
 	select {
 	case reason := <-monitor.SwitchCh():
