@@ -1,6 +1,7 @@
 #import "NHWatcherView.h"
 #import <ScreenSaver/ScreenSaver.h>
 #import <signal.h>
+#import <sys/xattr.h>
 
 static NSString * const kBundleID    = @"io.patenaude.NHWatcher";
 static NSString * const kServerNAO   = @"serverNAO";
@@ -317,6 +318,11 @@ static NSString * const kOverscan    = @"overscanPercent";
     }];
 
     NSLog(@"NHWatcher: launching viewer at %@", binPath);
+
+    // Strip com.apple.quarantine so spawning the binary doesn't trigger a
+    // Gatekeeper consent dialog hidden behind the fullscreen screensaver.
+    // xattrs are not part of the codesign hash, so this is signature-safe.
+    removexattr([binPath fileSystemRepresentation], "com.apple.quarantine", 0);
 
     NSError *error = nil;
     [_viewerTask launchAndReturnError:&error];
