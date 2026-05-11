@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"image"
 	"image/color"
 	"image/png"
 	"io"
@@ -439,7 +440,13 @@ func (v *Viewer) captureFrames() {
 			return
 		default:
 		}
-		img := v.window.Canvas().Capture()
+		// Canvas.Capture must run on the main goroutine — calling it from
+		// a background goroutine races Fyne's own render loop on shared
+		// Metal/OpenGL resources and produces intermittent heap corruption.
+		var img image.Image
+		fyne.DoAndWait(func() {
+			img = v.window.Canvas().Capture()
+		})
 		if img != nil {
 			var buf bytes.Buffer
 			if err := png.Encode(&buf, img); err == nil {
