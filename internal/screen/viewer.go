@@ -326,6 +326,15 @@ func (v *Viewer) setupTerminal(gameCols, gameRows int) <-chan struct{} {
 		gameRows = 24
 	}
 
+	// Pad the grid: live games and recordings sometimes emit cursor
+	// positions outside the negotiated terminal size (the player's client
+	// was sized differently than what dgamelaunch reported, or a ttyrec
+	// references positions past the apparent max). The fyne-io/terminal
+	// widget panics on out-of-bounds writes (see fyne-io/terminal#149),
+	// so give the grid some slack on both axes.
+	gameCols += 10
+	gameRows += 10
+
 	winSize := v.window.Canvas().Size()
 	cellW, cellH := v.baseCellW, v.baseCellH
 
