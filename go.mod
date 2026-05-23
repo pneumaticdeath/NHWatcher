@@ -4,7 +4,7 @@ go 1.25.3
 
 require (
 	fyne.io/fyne/v2 v2.7.4-0.20260404155105-c53f9d6e424e
-	github.com/fyne-io/terminal v0.0.0-20260426193242-b58db860086d
+	github.com/fyne-io/terminal v0.0.0-20260406081141-73c54fbd1dd3
 	golang.org/x/crypto v0.49.0
 	golang.org/x/image v0.38.0
 )
