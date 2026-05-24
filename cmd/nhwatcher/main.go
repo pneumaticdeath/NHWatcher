@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -28,10 +29,14 @@ func main() {
 		}
 	}
 
-	// Log to file (stdout is used for frame data in screensaver mode)
-	if f, err := os.OpenFile("/tmp/nhwatcher_debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+	// Log to file (stdout is used for frame data in screensaver mode).
+	// Use os.TempDir() rather than a literal /tmp so the sandboxed
+	// screensaver process writes to its sandbox TMPDIR.
+	logPath := filepath.Join(os.TempDir(), "nhwatcher_debug.log")
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
 		log.SetOutput(f)
 		log.Printf("=== nhwatcher started, PID=%d, PPID=%d, screensaver=%v, args=%v", os.Getpid(), os.Getppid(), *screensaverMode, os.Args)
+		log.Printf("Log path: %s", logPath)
 		for _, key := range []string{"HOME", "USER", "TMPDIR", "APP_SANDBOX_CONTAINER_ID"} {
 			log.Printf("ENV %s=%s", key, os.Getenv(key))
 		}
