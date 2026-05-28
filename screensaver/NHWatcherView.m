@@ -311,11 +311,17 @@ static NSString * const kOverscan    = @"overscanPercent";
     [_viewerTask setExecutableURL:[NSURL fileURLWithPath:binPath]];
     [_viewerTask setArguments:@[@"--screensaver", @"--servers", serverArg]];
     [_viewerTask setStandardOutput:_framePipe];
-    [_viewerTask setEnvironment:@{
-        @"HOME": NSHomeDirectory(),
-        @"USER": NSUserName(),
-        @"NHWATCHER_SCREENSAVER": @"1"
-    }];
+
+    // Inherit the parent process's environment so TMPDIR, PATH, sandbox
+    // hints, and other context propagate to the Go binary. Previously we
+    // stripped to a 3-entry minimal env; that broke under macOS 26.3.1
+    // where the screensaver sandbox stopped redirecting /tmp to the
+    // container tmp, so the binary couldn't write its debug log or use
+    // any tool it shells out to find at runtime.
+    NSMutableDictionary *env =
+        [[[NSProcessInfo processInfo] environment] mutableCopy];
+    env[@"NHWATCHER_SCREENSAVER"] = @"1";
+    [_viewerTask setEnvironment:env];
 
     NSLog(@"NHWatcher: launching viewer at %@", binPath);
 
