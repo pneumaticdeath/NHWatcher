@@ -23,6 +23,15 @@ static void hideNSWindow(void *nswindow) {
     [win setLevel:kCGDesktopWindowLevelKey - 1];
 }
 
+// activateApp brings this process to the foreground. LSUIElement
+// (menu-bar only) apps don't claim focus by default, so when idle
+// activation tries to show a window the OS may leave it behind any
+// active app. Calling activateIgnoringOtherApps before Show forces our
+// window into the foreground.
+static void activateApp(void) {
+    [NSApp activateIgnoringOtherApps:YES];
+}
+
 */
 import "C"
 import "unsafe"
@@ -39,4 +48,11 @@ func ScreenSize() (int, int) {
 // Must be called on the main thread (via fyne.Do).
 func HideNSWindow(nswindow uintptr) {
 	C.hideNSWindow(unsafe.Pointer(nswindow))
+}
+
+// ActivateApp brings this process to the foreground. Required for
+// LSUIElement (menu-bar only) apps to claim focus when activating a
+// window from a background goroutine. Must be called on the main thread.
+func ActivateApp() {
+	C.activateApp()
 }

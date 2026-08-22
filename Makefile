@@ -5,6 +5,12 @@ SAVER_CONTENTS = $(SAVER_DIR)/Contents
 INSTALL_DIR = $(HOME)/Library/Screen\ Savers
 RELEASE_ZIP = build/$(SAVER_NAME)-$(VERSION).saver.zip
 
+# Menu-bar .app bundle (default user-facing build)
+APP_NAME = NH Watcher
+APP_DIR = build/$(APP_NAME).app
+APP_CONTENTS = $(APP_DIR)/Contents
+APP_INSTALL_DIR = /Applications
+
 # Code signing identity — set via environment or edit here
 # Use: export DEVELOPER_ID="Developer ID Application: Mitch Patenaude (TEAMID)"
 DEVELOPER_ID ?=
@@ -21,7 +27,8 @@ NOTARIZE_TEAM_ID ?=
 NOTARIZE_PASSWORD ?=
 
 .PHONY: all app app-universal saver saver-universal install uninstall clean \
-        sign sign-only notarize notarize-only release test-saver run
+        sign sign-only notarize notarize-only release test-saver run \
+        app-bundle app-bundle-universal install-app uninstall-app run-menubar
 
 all: saver
 
@@ -133,6 +140,51 @@ clean:
 	rm -rf build/
 	rm -f nhwatcher
 
-# Run the standalone app (no screensaver wrapper)
+# Run the standalone fullscreen viewer (ESC/Q quits). For end-user testing.
 run: app
-	./build/nhwatcher
+	./build/nhwatcher --standalone
+
+# Run in menu-bar mode for development. A low --idle threshold makes it easy
+# to verify auto-activation without waiting five minutes.
+run-menubar: app
+	./build/nhwatcher --idle 15s
+
+# Build the menu-bar .app bundle (native arch).
+app-bundle: app
+	$(MAKE) _app_bundle
+
+# Build the menu-bar .app bundle with a universal binary.
+app-bundle-universal: app-universal
+	$(MAKE) _app_bundle
+
+# Internal: assemble the .app bundle (expects build/nhwatcher to exist).
+_app_bundle:
+	@mkdir -p "$(APP_CONTENTS)/MacOS"
+	@mkdir -p "$(APP_CONTENTS)/Resources"
+	cp build/nhwatcher "$(APP_CONTENTS)/MacOS/nhwatcher"
+	sed 's/__VERSION__/$(VERSION)/' app/Info.plist > "$(APP_CONTENTS)/Info.plist"
+	cp icon.png "$(APP_CONTENTS)/Resources/icon.png"
+	@# Generate a .icns from icon.png if iconutil is available.
+	@if command -v iconutil >/dev/null 2>&1; then \
+		rm -rf build/icon.iconset; \
+		mkdir -p build/icon.iconset; \
+		for sz in 16 32 64 128 256 512; do \
+			sips -z $$sz $$sz icon.png --out build/icon.iconset/icon_$${sz}x$${sz}.png >/dev/null; \
+		done; \
+		iconutil -c icns build/icon.iconset -o "$(APP_CONTENTS)/Resources/icon.icns"; \
+		rm -rf build/icon.iconset; \
+	fi
+	@echo "Built $(APP_DIR)"
+
+# Install the menu-bar .app to /Applications.
+install-app: app-bundle
+	@if [ -d "$(APP_INSTALL_DIR)/$(APP_NAME).app" ]; then \
+		rm -rf "$(APP_INSTALL_DIR)/$(APP_NAME).app"; \
+	fi
+	cp -R "$(APP_DIR)" "$(APP_INSTALL_DIR)/"
+	@echo "Installed to $(APP_INSTALL_DIR)/$(APP_NAME).app"
+	@echo "Launch from Finder or:  open '$(APP_INSTALL_DIR)/$(APP_NAME).app'"
+
+uninstall-app:
+	rm -rf "$(APP_INSTALL_DIR)/$(APP_NAME).app"
+	@echo "Uninstalled $(APP_NAME).app"

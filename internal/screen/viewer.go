@@ -403,10 +403,11 @@ func (v *Viewer) waitForFullScreen() {
 		}
 	}
 
-	// In screensaver mode, we need the NSWindow to exist for Canvas.Capture(),
-	// but it must be hidden so the user only sees the ObjC screensaver view's
-	// rendering of our piped frames.
-	if v.screensaverMode {
+	// When we're piping captured frames out (the .saver wrapper path), the
+	// NSWindow must exist for Canvas.Capture() but be hidden so the user
+	// only sees the ObjC view's rendering of our frames. In menu-bar mode
+	// there's no consumer of the frame pipe and the window must stay visible.
+	if v.frameOut != nil {
 		for {
 			nsWindow := v.getNSWindow()
 			if nsWindow != 0 {

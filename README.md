@@ -9,6 +9,8 @@ It connects via SSH to a dgamelaunch server, picks a random active game that fit
 
 ## Installation as a screensaver
 
+The screensaver bundle (`.saver`) is the primary way to run NH Watcher. It hooks into the macOS screen-saver system, so it launches, exits, and locks the screen through the same mechanism as any other screensaver.
+
 ### Via Homebrew:
 
 ```bash
@@ -24,20 +26,24 @@ make install
 
 Then open **System Settings > Wallpaper > Screen Saver** and select **NH Watcher**.
 
-## Installation as a standalone app
+## Menu-bar helper (optional)
+
+There is also a small menu-bar app that adds a **Watch now** launcher — useful when you want to spectate a game without waiting for the screensaver to kick in. It does not auto-activate on idle (that is the screensaver's job).
+
+```bash
+make install-app     # copies "NH Watcher.app" to /Applications
+open "/Applications/NH Watcher.app"
+```
+
+The tray icon has two items: **Watch now** and **Quit**. Any keypress or mouse movement exits the spectating window.
+
+## Standalone testing mode
 
 ```bash
 make run
 ```
 
-## Controls (standalone mode)
-
-| Key | Action |
-|-----|--------|
-| **S** | Switch to a different game |
-| **Q** / **Escape** | Quit |
-
-In screensaver mode, any keypress or mouse movement exits.
+Runs the viewer in a single fullscreen window with no screensaver or menu-bar wrapping. **S** switches games, **Q** / **Escape** quits.
 
 ## Building from source
 
@@ -47,14 +53,18 @@ Requires Go and Xcode command line tools.
 # Build the .saver bundle
 make saver
 
+# Build the menu-bar helper .app bundle
+make app-bundle
+
 # Build just the Go binary
 make app
 
 # Run tests
 go test ./internal/nao/
 
-# Uninstall the screensaver
-make uninstall
+# Uninstall
+make uninstall            # removes the .saver
+make uninstall-app        # removes the menu-bar .app
 ```
 
 ## How it works
